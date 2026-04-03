@@ -1,0 +1,7 @@
+transformers==4.57.1
+trl==0.24.0
+vllm==0.17.1
+lm-eval==0.4.11
+llamafactory==0.9.4
+peft==0.17.0
+wandb

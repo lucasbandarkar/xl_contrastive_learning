@@ -1,0 +1,26 @@
+{
+    "qwen3_30b": {
+        "batch_sizes": {
+            "partial": 128,
+            "full": 1
+        }
+    },
+    "mixtral": {
+        "batch_sizes": {
+            "partial": 128,
+            "full": 32
+        }
+    },
+    "olmoe": {
+        "batch_sizes": {
+            "partial": 128,
+            "full": 64
+        }
+    },
+    "phi-tiny": {
+        "batch_sizes": {
+            "partial": 128,
+            "full": 64
+        }
+    }
+}

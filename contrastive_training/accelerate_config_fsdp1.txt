@@ -1,0 +1,32 @@
+accelerate config
+-----------------------------------------------------------------------------------------------------------------------In which compute environment are you running?
+This machine                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------Which type of machine are you using?                                                                                   
+multi-GPU                                                                                                              
+How many different machines will you use (use more than 1 for multi-node training)? [1]: 1                             
+Should distributed operations be checked while running for errors? This can avoid timeout issues but will be slower. [yes/NO]: NO                                                                                                             
+Do you wish to optimize your script with torch dynamo?[yes/NO]:NO                                                      
+Do you want to use DeepSpeed? [yes/NO]: NO                                                                             
+Do you want to use FullyShardedDataParallel? [yes/NO]: yes                                                             
+-----------------------------------------------------------------------------------------------------------------------What should be your FSDP version? [2]:                                                                                 
+1                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------What should be your sharding strategy?                                                                                 
+FULL_SHARD                                                                                                             
+Do you want to offload parameters and gradients to CPU? [yes/NO]: NO                                                   
+-----------------------------------------------------------------------------------------------------------------------What should be your auto wrap policy?                                                                                  
+TRANSFORMER_BASED_WRAP                                                                                                 
+Do you want to use the model's `_no_split_modules` to wrap. Only applicable for 🤗 Transformers [yes/NO]: ye           
+Please enter yes or no.                                                                                                
+Do you want to use the model's `_no_split_modules` to wrap. Only applicable for 🤗 Transformers [yes/NO]: yes          
+-----------------------------------------------------------------------------------------------------------------------What should be your FSDP's backward prefetch policy?
+BACKWARD_PRE                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------What should be your FSDP's state dict type?                                                                            
+FULL_STATE_DICT                                                                                                        
+Do you want to enable FSDP's forward prefetch policy? [yes/NO]: NO                                                     
+Do you want to enable FSDP's `use_orig_params` feature? [YES/no]: YES                                                  
+Do you want to enable CPU RAM efficient model loading? Only applicable for 🤗 Transformers models. [YES/no]: YES       
+Do you want to enable FSDP activation checkpointing? [yes/NO]: YES
+How many GPU(s) should be used for distributed training? [1]:1
+-----------------------------------------------------------------------------------------------------------------------Do you wish to use mixed precision?
+bf16                                                                                                                   
+accelerate configuration saved at /home/lucasbandarkar/.cache/huggingface/accelerate/default_config.yaml 

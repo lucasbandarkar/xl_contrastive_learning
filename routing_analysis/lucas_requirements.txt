@@ -1,0 +1,9 @@
+matplotlib
+pandas
+jupyter
+numpy
+regex
+seaborn
+tqdm
+transformers==4.52.4
+trl
