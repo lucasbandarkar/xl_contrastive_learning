@@ -15,4 +15,4 @@ This repo was split and copied over from https://github.com/mohsenfayyaz/moe on 
 
 ## Conda envs
 
-see contrastive_training/README.md
+see contrastive_training/README.md and routing_analysis/README.md
