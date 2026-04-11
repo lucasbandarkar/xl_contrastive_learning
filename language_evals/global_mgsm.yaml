@@ -1,0 +1,41 @@
+task: global_mgsm
+dataset_path: "CohereLabs/global-mgsm" # e.g., "user/mgsm-extended"
+output_type: generate_until
+test_split: test
+fewshot_split: test # Using test for few-shot is common if train is missing
+# target_delimiter: ""
+
+# Schema Mapping
+doc_to_text: "{{instruction}}\n\nQuestion: {{question}}\n\n{{answer_prefix}}"
+doc_to_target: "{{answer}}" # This is just the number (e.g., "42")
+
+# Handling Reasoning Models in 2026
+generation_kwargs:
+  until:
+    - "\n\n"
+    - "\n"
+    - "Question:"
+    - "</think>"
+  do_sample: false
+  temperature: 0.0
+
+# Answer Extraction
+filter_list:
+  - name: remove_whitespace
+    filter:
+      - function: remove_whitespace
+      - function: take_first
+  - name: "flexible-extract"
+    filter:
+      - function: "regex"
+        group_select: -1
+        regex_pattern: "(-?[$0-9.,]{2,})|(-?[0-9]+)"
+      - function: "take_first"
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+metadata:
+  version: 4.0
