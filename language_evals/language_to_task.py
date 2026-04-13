@@ -3,12 +3,11 @@ When you want to evaluate a new language
 1. Add it to LANGUAGE_TO_TASK using its row in https://docs.google.com/spreadsheets/d/1IIpKgq466sDXOjh1IQXtDvnTvDfi3WeGIdM2X8wR2Kw/
 2. Add it to FLORES_LANGCODE_MAP using https://github.com/facebookresearch/flores/blob/main/flores200/README.md
 3. If it's in INCLUDE, Add it to CODE_TO_INCLUDE_NAME using https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks/include/default
-
 """
 
 # I have decided to not implement XLSum
 LANGUAGE_TO_TASK = {
-    "en": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "global_piqa",],
+    "en": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "multiloko", "global_piqa",], # no flores, no include
     "fa": ["belebele", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa",],
     "si": ["belebele", "mgsm", "global_mmlu_medical", "flores", "global_piqa",],
     # all 8

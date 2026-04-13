@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODEL_NAME="phi-tiny"
-LANGUAGE="pes"
+LANGUAGE=""
+TASK=""
 ADAPTER_PATH=""
 REQUESTED_GPUS="0"
 
@@ -34,6 +35,7 @@ Usage: run_eval_only.sh [options]
 Options:
   -m, --model-name NAME       Model name or local checkpoint path
   -l, --language LANG         Target language code
+  -t, --task TASK             Target task name
   -a, --adapter-path PATH     Optional LoRA adapter path to merge before eval
   -g, --gpus LIST             CUDA_VISIBLE_DEVICES value
   -h, --help                  Show this help
@@ -48,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -l|--language)
       LANGUAGE="$2"
+      shift 2
+      ;;
+    -t|--task)
+      TASK="$2"
       shift 2
       ;;
     -a|--adapter-path)
@@ -73,12 +79,28 @@ done
 export CUDA_VISIBLE_DEVICES="$REQUESTED_GPUS"
 GPU_COUNT="$(count_gpus "$REQUESTED_GPUS")"
 
+# Construct run name based on provided arguments
+RUN_SUFFIX=""
+if [[ -n "$LANGUAGE" ]]; then
+  RUN_SUFFIX="${RUN_SUFFIX}-${LANGUAGE}"
+fi
+if [[ -n "$TASK" ]]; then
+  RUN_SUFFIX="${RUN_SUFFIX}-${TASK}"
+fi
+
 cmd=(
-  python "$SCRIPT_DIR/evaluate.py"
+  python "$SCRIPT_DIR/run_eval.py"
   --model_name "$MODEL_NAME"
-  --language "$LANGUAGE"
-  --run_name "eval-${MODEL_NAME##*/}-${LANGUAGE}"
+  --run_name "eval-${MODEL_NAME##*/}${RUN_SUFFIX}"
+  --tensor_parallel_size "$GPU_COUNT"
 )
+
+if [[ -n "$LANGUAGE" ]]; then
+  cmd+=(--language "$LANGUAGE")
+fi
+if [[ -n "$TASK" ]]; then
+  cmd+=(--task "$TASK")
+fi
 
 if [[ -n "$ADAPTER_PATH" ]]; then
   cmd+=(--adapter_path "$ADAPTER_PATH")

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import gc
+import json
 import shutil
 from argparse import ArgumentParser
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Any, Optional
+from vllm import SamplingParams
+from lm_eval.api.registry import get_model
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -51,39 +56,54 @@ def invert_language_to_task() -> dict[str, list[str]]:
 def select_run_targets(language: str | None, task: str | None) -> tuple[list[str], list[str]]:
     task_to_languages = invert_language_to_task()
 
+    if language is None and task is None:
+        raise ValueError("At least one of `--language` or `--task` must be provided.")
+
+    if language is not None and task is not None:
+        if language not in LANGUAGE_TO_TASK:
+            raise ValueError(f"Unknown language `{language}`.")
+        if task not in LANGUAGE_TO_TASK[language]:
+            raise ValueError(f"Task `{task}` is not mapped for language `{language}`.")
+        return [language], [task]
+
     if language is not None:
         if language not in LANGUAGE_TO_TASK:
             raise ValueError(f"Unknown language `{language}`.")
-        task_ids = LANGUAGE_TO_TASK[language]
-        return [language], task_ids
+        return [language], LANGUAGE_TO_TASK[language]
 
-    if task is None:
-        raise ValueError("Exactly one of `--language` or `--task` must be provided.")
     if task not in task_to_languages:
         raise ValueError(f"Unknown task `{task}`.")
     return task_to_languages[task], [task]
 
-def build_model_config(model_path: str, needs_direct_vllm: bool) -> EvalModelConfig:
-    direct_vllm_model = None
-    sampling_params_cls = None
-    if needs_direct_vllm:
-        from vllm import LLM, SamplingParams
+@dataclass
+class VLLMWrapper:
+    lm_eval_model: Any
+    lm_eval_model_args: Optional[dict]
+    direct_vllm_model: Optional[Any] = None
+    _sampling_params_cls: Optional[Any] = None
 
-        direct_vllm_model = LLM(
-            model=model_path,
-            trust_remote_code=True,
-        )
-        sampling_params_cls = SamplingParams
+    def build_sampling_params(self, **kwargs):
+        if self._sampling_params_cls:
+            return self._sampling_params_cls(**kwargs)
+        raise RuntimeError("SamplingParams class not available.")
 
-    return EvalModelConfig(
-        lm_eval_model="vllm",
-        lm_eval_model_args={
-            "pretrained": model_path,
-            "enable_thinking": True,
-            "think_end_token": "</think>",
-        },
-        direct_vllm_model=direct_vllm_model,
-        _sampling_params_cls=sampling_params_cls,
+def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel_size: int = 1) -> VLLMWrapper:
+
+    # Instantiate the lm-eval model wrapper directly.
+    # This internally initializes the vLLM engine exactly once.
+    lm_eval_model_cls = get_model("vllm")
+    lm_eval_model_instance = lm_eval_model_cls(
+        pretrained=model_path,
+        tensor_parallel_size=tensor_parallel_size,
+        trust_remote_code=True,
+        enable_thinking=True,
+    )
+
+    return VLLMWrapper(
+        lm_eval_model=lm_eval_model_instance,
+        lm_eval_model_args=None,
+        direct_vllm_model=lm_eval_model_instance.model if needs_direct_vllm else None,
+        _sampling_params_cls=SamplingParams,
     )
 
 
@@ -93,12 +113,14 @@ def evaluate_model(
     task: str | None,
     run_name: str,
     cleanup_model_path: str | None,
+    tensor_parallel_size: int = 1,
 ):
     selected_languages, selected_tasks = select_run_targets(language, task)
 
-    model_config = build_model_config(
+    vllm_wrapper = build_vllm_wrapper(
         model_path,
         needs_direct_vllm="multiloko" in selected_tasks,
+        tensor_parallel_size=tensor_parallel_size,
     )
 
     output_dir = Path(__file__).resolve().parent / "results" / run_name
@@ -106,23 +128,32 @@ def evaluate_model(
 
     summary = {}
     for task_id in selected_tasks:
-        evaluator_cls = TASK_EVALUATOR_REGISTRY[task_id]
-        evaluator_instance = evaluator_cls(model_config)
         output_file = output_dir / f"{task_id}.json"
-        task_results = evaluator_instance.lm_eval_evaluate(
-            selected_languages,
-            output_file=str(output_file),
-        )
-        summary[task_id] = task_results
-        print(f"Completed `{task_id}` for languages: {selected_languages}")
+        if output_file.exists():
+            print(f"Skipping `{task_id}`, results already exist in {output_file.name}")
+            with output_file.open("r") as f:
+                summary[task_id] = json.load(f)
+        else:
+            evaluator_cls = TASK_EVALUATOR_REGISTRY[task_id]
+            evaluator_instance = evaluator_cls(vllm_wrapper)
+            task_results = evaluator_instance.lm_eval_evaluate(
+                selected_languages,
+                output_file=str(output_file),
+            )
+            summary[task_id] = task_results
+            print(f"Completed `{task_id}` for languages: {selected_languages}")
+            print(f"Temporary results written to {output_file.name}")
 
     summary_path = output_dir / "summary.json"
     with summary_path.open("w") as f:
-        import json
-
         json.dump(summary, f, indent=4, ensure_ascii=False)
 
-    print(f"Wrote per-task results and summary to {output_dir}")
+    for task_id in selected_tasks:
+        output_file = output_dir / f"{task_id}.json"
+        if output_file.exists():
+            output_file.unlink()
+
+    print(f"Wrote summary to {output_dir} and cleaned up per-task files.")
 
     if cleanup_model_path:
         print(f"Cleaning up model directory: {cleanup_model_path}")
@@ -132,9 +163,8 @@ def evaluate_model(
 def main():
     parser = ArgumentParser()
     parser.add_argument("--model_name", type=str, required=True, help="Base model name or path")
-    selection_group = parser.add_mutually_exclusive_group(required=True)
-    selection_group.add_argument("--language", type=str, help="Run all mapped tasks for a language")
-    selection_group.add_argument("--task", type=str, help="Run a task across all mapped languages")
+    parser.add_argument("--language", type=str, default=None, help="Run all mapped tasks for a language")
+    parser.add_argument("--task", type=str, default=None, help="Run a task across all mapped languages")
     parser.add_argument("--adapter_path", type=str, default=None)
     parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument(
@@ -143,10 +173,10 @@ def main():
         default=None,
         help="Path to clean up after evaluation",
     )
+    parser.add_argument("--tensor_parallel_size", type=int, default=1)
     args = parser.parse_args()
 
     selected_languages, selected_tasks = select_run_targets(args.language, args.task)
-    preflight_checks(selected_languages, selected_tasks)
 
     model_path, created_merge = prepare_model(args.model_name, args.adapter_path)
     cleanup_path = model_path if created_merge else args.cleanup_model_path
@@ -157,6 +187,7 @@ def main():
             task=args.task,
             run_name=args.run_name,
             cleanup_model_path=cleanup_path,
+            tensor_parallel_size=args.tensor_parallel_size,
         )
     except Exception:
         if cleanup_path:

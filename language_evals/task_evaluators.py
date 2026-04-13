@@ -9,9 +9,11 @@ import tempfile
 from difflib import SequenceMatcher
 from pathlib import Path
 import numpy as np
+from datasets import load_dataset
+import ast
 
 from language_to_task import CODE_TO_INCLUDE_NAME, CODE_TO_MULTILOKO_NAME, FLORES_LANGCODE_MAP
-from multiloko_utils import MULTILOKO_PROMPT_BUILDERS, MULTILOKO_DATA_ROOT
+from utils.multiloko_utils import MULTILOKO_PROMPT_BUILDERS
 
 MMLU_PROX_LANGUAGES = ["af", "ar", "bn", "cs", "de", "en", "es", "fr", "hi", "hu", "id", "it", "ja", "ko", "mr", 
                        "ne", "pt", "ru", "sr", "sw", "te", "th", "uk", "ur", "vi", "wo", "yo", "zh", "zu"]
@@ -20,19 +22,9 @@ GLOBAL_MMLU_LANGUAGES = ["ar", "bn", "de", "en", "es", "fr", "hi", "id", "it", "
 
 MGSM_LANGUAGES = ["bn", "de", "en", "es", "fr", "ru", "sw", "te", "th", "ja", "zh"] # doesn't include Global-MGSM languages
 
-GLOBAL_MGSM_BASE_YAML = "global_mgsm.yaml"
-GMMLU_MEDICAL_SAMPLES_PATH = "gmmlu_medical_samples_dict.json"
-
-TASK_EVALUATOR_REGISTRY = {
-    "belebele": BelebeleEvaluator,
-    "mgsm": MGSMEvaluator,
-    "mmlu_prox": MMLUProXEvaluator,
-    "global_mmlu_medical": GlobalMMLUMedicalEvaluator,
-    "flores": FLoRes2WayEvaluator,
-    "multiloko": MultiLoKoEvaluator,
-    "global_piqa": GlobalPIQAEvaluator,
-    "include": INCLUDEEvaluator,
-}
+GLOBAL_MGSM_BASE_YAML = "utils/global_mgsm.yaml"
+FLORES_BASE_YAML = "utils/flores.yaml"
+GMMLU_MEDICAL_SAMPLES_PATH = "utils/gmmlu_medical_samples_dict.json"
 
 
 class Evaluator:
@@ -44,7 +36,8 @@ class Evaluator:
 
     def simple_evaluate(self, *args, **kwargs):
         kwargs.setdefault("model", self.vllm_wrapper.lm_eval_model)
-        kwargs.setdefault("model_args", self.vllm_wrapper.lm_eval_model_args)
+        if self.vllm_wrapper.lm_eval_model_args is not None:
+            kwargs.setdefault("model_args", self.vllm_wrapper.lm_eval_model_args)
         return evaluator.simple_evaluate(*args, **kwargs)
 
     def write_results(self, output_file: str | Path, results: dict[str, Any]) -> None:
@@ -100,7 +93,7 @@ class MGSMEvaluator(Evaluator):
                 task_name = f"global_mgsm_{lang}"
                 task_names.append(task_name)
                 task_config = (
-                    f'include: "{GLOBAL_MGSM_BASE_YAML.as_posix()}"\n'
+                    f'include: "{GLOBAL_MGSM_BASE_YAML}"\n'
                     f"task: {task_name}\n"
                     f"dataset_name: {lang}\n"
                 )
@@ -163,7 +156,7 @@ class GlobalMMLUMedicalEvaluator(Evaluator):
     def get_samples_dict(self, lang_tasks):
         ''' Downsampling MMLU-ProX dataset because the size is far too large per language'''
 
-        with GMMLU_MEDICAL_SAMPLES_PATH.open("r") as f:
+        with open(GMMLU_MEDICAL_SAMPLES_PATH, "r") as f:
             eng_dict = json.load(f)
 
         samples_dict = {}
@@ -185,6 +178,7 @@ class MMLUProXEvaluator(Evaluator):
             batch_size="auto",
             verbosity="WARNING",
             log_samples=False,
+            gen_kwargs={"max_gen_toks": 1024},
         )
         results_clean = {}
         for task, metrics in results['groups'].items():
@@ -281,16 +275,62 @@ class INCLUDEEvaluator(Evaluator):
         return results_clean
 
 
-class FLoRes2WayEvaluator(Evaluator):
+class FLoResEngXEvaluator(Evaluator):
     def lm_eval_evaluate(self, langcodes, debugging=False, output_file="output.json"):
-        ## NOT ACTUALLY IN LM_EVAL, need to implement ourselves
-        # TODO implement a fast way that uses the vllm object to perform translation and get sacrebleu score
-        return 0.0
+        # We skip English ("en") since we are evaluating English -> Target translations
+        eval_langcodes = [lang for lang in langcodes if lang != "en"]
+        results_clean = {}
+        
+        if not eval_langcodes:
+            self.write_results(output_file, results_clean)
+            return results_clean
+            
+        with tempfile.TemporaryDirectory(prefix="flores_tasks_") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            task_names = []
+            
+            for lang in eval_langcodes:
+                tgt_lang = FLORES_LANGCODE_MAP[lang]
+                task_name = f"flores_eng_Latn_{tgt_lang}"
+                task_names.append(task_name)
+                
+                # Jinja templating mapped to the Hugging Face dataset columns
+                task_config = (
+                    f'include: "{FLORES_BASE_YAML}"\n'
+                    f"task: {task_name}\n"
+                    f"dataset_name: eng_Latn-{tgt_lang}\n"
+                    f"doc_to_text: '{{{{sentence_eng_Latn}}}} = '\n"
+                    f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
+                    f"dataset_kwargs:\n  trust_remote_code: True\n"
+                )
+                (temp_dir_path / f"{task_name}.yaml").write_text(task_config)
+
+            task_manager = tasks.TaskManager(include_path=str(temp_dir_path))
+            eval_kwargs = {
+                "tasks": task_names,
+                "task_manager": task_manager,
+                "num_fewshot": self.shots,
+                "batch_size": "auto",
+            }
+            if debugging:
+                eval_kwargs.update({"limit": 25, "log_samples": True})
+            else:
+                eval_kwargs.update({"verbosity": "WARNING"})
+
+            results = self.simple_evaluate(**eval_kwargs)
+
+        for task_name, metrics in results["results"].items():
+            tgt_lang = task_name.removeprefix("flores_eng_Latn_")
+            # Map the flores langcode back to the original langcode
+            original_lang = next((k for k, v in FLORES_LANGCODE_MAP.items() if v == tgt_lang), tgt_lang)
+            results_clean[original_lang] = np.round(metrics.get("chrf,none", metrics.get("chrf", 0.0)), 3)
+            
+        self.write_results(output_file, results_clean)
+        return results_clean
 
 class MultiLoKoEvaluator(Evaluator):
-    def __init__(self, vllm_object, sampling_params_obj, chat_format: bool = False, shots: int = 0):
+    def __init__(self, vllm_object, chat_format: bool = False, shots: int = 0):
         super().__init__(vllm_object, chat_format, shots)
-        self.sampling_params = sampling_params_obj
         self.normalization_regex = re.compile(r"\b(a|an|the)\b")
 
 
@@ -301,24 +341,18 @@ class MultiLoKoEvaluator(Evaluator):
             raise RuntimeError(
                 "MultiLoKo evaluation requires a direct vLLM model instance, but none was provided."
             )
-        if not MULTILOKO_DATA_ROOT.exists():
-            raise FileNotFoundError(
-                "MultiLoKo evaluation requires the benchmark data root at "
-                f"{MULTILOKO_DATA_ROOT}."
-            )
 
         primary_scores = {}
         debug_payload = {}
         for lang in langcodes:
             language_name = CODE_TO_MULTILOKO_NAME[lang]
-            fewshot_examples = self.load_jsonl(
-                MULTILOKO_DATA_ROOT / language_name / "knowledge_fewshot.jsonl"
-            )
-            eval_examples = self.load_jsonl(
-                MULTILOKO_DATA_ROOT / language_name / "dev.jsonl"
-            )
-            fewshot_examples = [self.prepare_example(example) for example in fewshot_examples]
-            eval_examples = [self.prepare_example(example) for example in eval_examples]
+            dataset = load_dataset("facebook/multiloko", language_name)
+            all_dev_examples = dataset["dev"]
+
+            prepared_examples = [self.prepare_example(example) for example in all_dev_examples]
+            fewshot_examples = prepared_examples[:2]
+            eval_examples = prepared_examples[2:]
+            
             prompts = [
                 self.build_prompt(language_name, fewshot_examples, example)
                 for example in eval_examples
@@ -342,12 +376,6 @@ class MultiLoKoEvaluator(Evaluator):
         self.write_results(output_file, debug_payload if debugging else primary_scores)
         return debug_payload if debugging else primary_scores
 
-    def load_jsonl(self, path: Path) -> list[dict[str, Any]]:
-        if not path.exists():
-            raise FileNotFoundError(f"Expected MultiLoKo file at {path}, but it was missing.")
-        with path.open("r") as f:
-            return [json.loads(line) for line in f if line.strip()]
-
     def build_prompt(
         self, language_name: str, fewshot_examples: list[dict[str, Any]], example: dict[str, Any]
     ) -> str:
@@ -362,8 +390,16 @@ class MultiLoKoEvaluator(Evaluator):
     def prepare_example(self, example: dict[str, Any]) -> dict[str, Any]:
         example = dict(example)
         targets = example.get("targets")
+
+        if isinstance(targets, str):
+            try:
+                targets = ast.literal_eval(targets)
+            except Exception:
+                targets = [targets]
+
         if targets:
             example["prompt_answer"] = targets[0]
+            example["targets"] = targets
         elif "answer" in example:
             example["prompt_answer"] = example["answer"]
             example["targets"] = [example["answer"]]
@@ -452,3 +488,15 @@ class MultiLoKoEvaluator(Evaluator):
         answer = self.normalization_regex.sub(" ", answer)
         answer = answer.translate(str.maketrans("", "", string.punctuation))
         return " ".join(answer.split())
+
+
+TASK_EVALUATOR_REGISTRY = {
+    "belebele": BelebeleEvaluator,
+    "mgsm": MGSMEvaluator,
+    "mmlu_prox": MMLUProXEvaluator,
+    "global_mmlu_medical": GlobalMMLUMedicalEvaluator,
+    "flores": FLoResEngXEvaluator,
+    "multiloko": MultiLoKoEvaluator,
+    "global_piqa": GlobalPIQAEvaluator,
+    "include": INCLUDEEvaluator,
+}

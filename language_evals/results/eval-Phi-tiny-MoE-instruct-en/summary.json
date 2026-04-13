@@ -1,0 +1,20 @@
+{
+    "belebele": {
+        "belebele_eng_Latn": 0.7
+    },
+    "mgsm": {
+        "en": 0.248
+    },
+    "mmlu_prox": {
+        "mmlu_prox_en": 0.45422535211267606
+    },
+    "global_mmlu_medical": {
+        "en": 0.638
+    },
+    "multiloko": {
+        "en": 0.113
+    },
+    "global_piqa": {
+        "global_piqa_completions_eng_latn": 0.75
+    }
+}
