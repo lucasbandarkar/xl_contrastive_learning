@@ -46,6 +46,9 @@ def load_models(model_name, max_layer=None):
         actual_layer_cls = model.model.layers[0].__class__.__name__
         model._no_split_modules = [actual_layer_cls]
         
+    # Force uniform dtype to prevent FSDP FlatParameter mixed-dtype errors
+    model = model.to(torch.bfloat16)
+    
     model.train()
     return model, tokenizer
 

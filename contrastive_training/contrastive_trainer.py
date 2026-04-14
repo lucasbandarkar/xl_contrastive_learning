@@ -226,6 +226,11 @@ class ContrastiveLMTrainer(Trainer):
         possible_names = ['mlp.router', 'block_sparse_moe.gate', 'mlp.gate']
         
         for name, param in self.model.named_parameters():
+            # Prevent FSDP crash: Root FSDP module must have trainable parameters to unshard correctly
+            if any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
+                param.requires_grad = True
+                continue
+                
             if any(identifier in name for identifier in possible_names):
                 # Check if the parameter belongs to a layer beyond max_layer
                 if self.is_beyond_max_layer(name, max_layer):
@@ -243,6 +248,10 @@ class ContrastiveLMTrainer(Trainer):
 
     def is_before_max_layer(self, param_name, max_layer):
         ## before *inclusive of* max_layer
+        # Prevent FSDP crash: Root-level parameters must remain trainable
+        if any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
+            return True
+            
         match = re.search(r'\.layers\.(\d+)\.', param_name)
         if match:
             layer_idx = int(match.group(1))

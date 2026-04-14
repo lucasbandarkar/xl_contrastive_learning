@@ -22,5 +22,11 @@
             "partial": 128,
             "full": 64
         }
+    },
+    "ernie": {
+        "batch_sizes": {
+            "partial": 32,
+            "full": 16
+        }
     }
 }
