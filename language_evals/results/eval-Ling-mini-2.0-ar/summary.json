@@ -1,0 +1,32 @@
+{
+    "belebele": {
+        "belebele_arb_Arab": 0.226
+    },
+    "mgsm": {
+        "ar": 0.0
+    },
+    "mmlu_prox": {
+        "mmlu_prox_ar": 0.0
+    },
+    "global_mmlu_medical": {
+        "ar": 0.26
+    },
+    "flores": {
+        "ar": 0.163
+    },
+    "multiloko": {
+        "ar": 0.0
+    },
+    "include": {
+        "include_base_44_arabic": 0.335,
+        "include_base_44_arabic_few_shot_og_arts_humanities": 0.305,
+        "include_base_44_arabic_few_shot_og_business_commerce": 0.317,
+        "include_base_44_arabic_few_shot_og_driving_license": 0.381,
+        "include_base_44_arabic_few_shot_og_general_knowledge": 0.314,
+        "include_base_44_arabic_few_shot_og_social_science": 0.295,
+        "include_base_44_arabic_few_shot_og_stem": 0.46
+    },
+    "global_piqa": {
+        "global_piqa_completions_arb_arab": 0.53
+    }
+}

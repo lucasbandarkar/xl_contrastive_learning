@@ -13,7 +13,7 @@ from datasets import load_dataset
 import ast
 
 from language_to_task import CODE_TO_INCLUDE_NAME, CODE_TO_MULTILOKO_NAME, FLORES_LANGCODE_MAP
-from utils.multiloko_utils import MULTILOKO_PROMPT_BUILDERS
+from task_utils.multiloko_utils import MULTILOKO_PROMPT_BUILDERS
 
 MMLU_PROX_LANGUAGES = ["af", "ar", "bn", "cs", "de", "en", "es", "fr", "hi", "hu", "id", "it", "ja", "ko", "mr", 
                        "ne", "pt", "ru", "sr", "sw", "te", "th", "uk", "ur", "vi", "wo", "yo", "zh", "zu"]
@@ -22,9 +22,9 @@ GLOBAL_MMLU_LANGUAGES = ["ar", "bn", "de", "en", "es", "fr", "hi", "id", "it", "
 
 MGSM_LANGUAGES = ["bn", "de", "en", "es", "fr", "ru", "sw", "te", "th", "ja", "zh"] # doesn't include Global-MGSM languages
 
-GLOBAL_MGSM_BASE_YAML = "utils/global_mgsm.yaml"
-FLORES_BASE_YAML = "utils/flores.yaml"
-GMMLU_MEDICAL_SAMPLES_PATH = "utils/gmmlu_medical_samples_dict.json"
+GLOBAL_MGSM_BASE_YAML = "task_utils/global_mgsm.yaml"
+FLORES_BASE_YAML = "task_utils/flores.yaml"
+GMMLU_MEDICAL_SAMPLES_PATH = "task_utils/gmmlu_medical_samples_dict.json"
 
 
 class Evaluator:
@@ -191,7 +191,7 @@ class MMLUProXEvaluator(Evaluator):
         ''' Downsampling MMLU-ProX dataset because the size is far too large per language'''
         full_datasize = 11759
         min_size_for_any_subject = 381
-        total_desired_size = 300
+        total_desired_size = 1000
         rng = np.random.default_rng(seed=36)
 
         subjects = [

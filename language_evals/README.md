@@ -24,13 +24,15 @@ The `-g/--gpus` flag should be a comma-separated list like `0`, `0,1`, or `0,1,2
 
 ## Create environment
 
+This env works for Phi-tiny & ling, but not for Qwen3.5.
+
 ```bash
 conda create --name moevllm python=3.12.11 -y
 conda activate moevllm
 pip install torch==2.10.0 torchvision torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu126
 pip install transformers==4.57.6
 pip install vllm==0.19.0
-pip install datasets==3.6.0 lm-eval==0.4.10
+pip install datasets==3.6.0 lm-eval==0.4.10 hf_transfer-0.1.9
 ```
 
 ## Evaluating a new language
