@@ -10,10 +10,14 @@ Instructions to recreate the `moe` env for these files:
 
 Note: For models that are newer than transformers==4.52.4, you can either use the xlcl env detailed in `contrastive_training/README.md` or try:
 
-```
+For Qwen3.5 i have been using this:
+```bash
 conda create -n qwen35 python=3.12.12
 conda activate qwen35
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+pip install torch==2.10.0 torchvision==2.10.0 --index-url https://download.pytorch.org/whl/cu126
 pip install transformers==4.57.6
 pip install -r matplotlib pandas seaborn
+pip install peft==0.16.0 uv==0.11.6 # for evals
+uv pip install vllm==0.18.0 # for evals
+pip install lm_eval==0.4.10 # for evals
 ```

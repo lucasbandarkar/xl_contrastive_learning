@@ -92,12 +92,19 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
     # Instantiate the lm-eval model wrapper directly.
     # This internally initializes the vLLM engine exactly once.
     lm_eval_model_cls = get_model("vllm")
-    lm_eval_model_instance = lm_eval_model_cls(
-        pretrained=model_path,
-        tensor_parallel_size=tensor_parallel_size,
-        trust_remote_code=True,
-        enable_thinking=True,
-    )
+    
+    vllm_kwargs = {
+        "pretrained": model_path,
+        "tensor_parallel_size": tensor_parallel_size,
+        "trust_remote_code": True,
+        "enable_thinking": True,
+    }
+
+    if "qwen3.5" in model_path.lower():
+        vllm_kwargs["gdn_prefill_backend"] = "triton"
+        vllm_kwargs["think_end_token"] = "</think>"
+
+    lm_eval_model_instance = lm_eval_model_cls(**vllm_kwargs)
 
     return VLLMWrapper(
         lm_eval_model=lm_eval_model_instance,

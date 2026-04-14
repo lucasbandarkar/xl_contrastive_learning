@@ -35,6 +35,8 @@ pip install vllm==0.19.0
 pip install datasets==3.6.0 lm-eval==0.4.10 hf_transfer-0.1.9
 ```
 
+For Qwen3.5, i reused the environment at the bottom of `routing_analysis/README.md`, which i named `qwen35`
+
 ## Evaluating a new language
 
 See `language_to_task.py` for instructions on how to add another language.

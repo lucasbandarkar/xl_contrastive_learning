@@ -8,13 +8,22 @@ import gc
 
 
 
-# need to update forward() pass
-# look at mohsen's src/modeling for inspiration
+# copied from routing_analysis/get_routing_weights.py
 NICKNAME_TO_MODEL_MAP = {
     "qwen3_30b": "Qwen/Qwen3-30B-A3B",
     "olmoe": "allenai/OLMoE-1B-7B-0125-Instruct",
-    "mixtral": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-    "phi-tiny": "microsoft/Phi-tiny-MoE-instruct"
+    # "mixtral": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    # "llama4": "meta-llama/Llama-4-Scout-17B-16E-Instruct", # WASNT WORKING (conda issue ?)
+    # "phimoe": "microsoft/Phi-3.5-MoE-instruct",
+    # "moonlight": "moonshotai/Moonlight-16B-A3B-Instruct", # WASNT WORKING (too complicated to get Deepseek remote code to work)
+    "gpt": "openai/gpt-oss-20b",
+    "qwen35": "Qwen/Qwen3.5-35B-A3B",
+    "nemotron": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8", # transformers doesn't have output_router_logits implemented
+    # "kimi": "moonshotai/Kimi-Linear-48B-A3B-Instruct", # doesn't have output_router_logits enabled
+    # "llada": "inclusionAI/LLaDA2.1-mini",
+    "ling": "inclusionAI/Ling-mini-2.0",
+    "phi-tiny": "microsoft/Phi-tiny-MoE-instruct",
+    "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
 }
 
 def load_models(model_name, max_layer=None):
