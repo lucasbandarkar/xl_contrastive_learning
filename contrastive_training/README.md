@@ -8,6 +8,14 @@ See accelerate_config.txt
 
 Got a training steps run + eval steps on Phi-moe-tiny-instruct when no FSDP involved (just one GPU):
 
+uv option:
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t
+```
+
+
 ```
 conda create -n xlcl python=3.14
 conda activate xlcl

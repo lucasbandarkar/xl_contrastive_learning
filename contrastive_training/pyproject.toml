@@ -1,0 +1,28 @@
+[project]
+name = "contrastive-training"
+version = "0.1.0"
+description = "XL Contrastive Learning Training"
+requires-python = ">=3.13"
+dependencies = [
+    "transformers==5.3.0",
+    "trl==0.29.0",
+    "matplotlib",
+    "pandas",
+    "jupyter",
+    "numpy",
+    "regex",
+    "seaborn",
+    "tqdm",
+    "torch",
+    "torchvision",
+    "accelerate",
+]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }

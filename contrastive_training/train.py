@@ -5,6 +5,9 @@ from modeling import load_models
 from parallel_dataset import load_parallel_datasets, ParallelDataCollator, ConcatenatedDataCollator
 from transformers import TrainingArguments
 import json
+import shutil
+from pathlib import Path
+import huggingface_hub
 
 def create_training_args(
         model_nickname,
@@ -20,7 +23,7 @@ def create_training_args(
 
     grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32)
     return TrainingArguments(
-        output_dir=f"/data2/lucasbandarkar/checkpoints/{create_output_directory_name()}",
+        output_dir=f"./checkpoints/{create_output_directory_name()}",
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         # gradient_accumulation_steps= grad_accum_steps,
@@ -122,6 +125,19 @@ def main(args):
     
     trainer.train()
 
+    output_dir = trainer.args.output_dir
+    trainer.save_model(output_dir)
+    tokenizer.save_pretrained(output_dir)
+
+    # Copy custom model code files (e.g. configuration_slimmoe.py, modeling_slimmoe.py)
+    # into the checkpoint so it can be loaded standalone with trust_remote_code=True
+    cache_dir = Path(huggingface_hub.snapshot_download(model.config._name_or_path, local_files_only=True))
+    for entry in model.config.auto_map.values():
+        py_file = entry.split(".")[0] + ".py"  # e.g. "configuration_slimmoe"
+        src = cache_dir / py_file
+        if src.exists():
+            shutil.copy2(src, Path(output_dir) / py_file)
+            print(f"Copied {py_file} into {output_dir}")
 
 if __name__ == "__main__":
     parser = ArgumentParser()

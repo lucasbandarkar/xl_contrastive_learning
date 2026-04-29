@@ -10,6 +10,8 @@ Examples:
 ```bash
 ./run_sft_and_eval.sh -m phi-tiny -l pes -d my_custom_dataset -g 0
 ./run_eval_only.sh -m microsoft/Phi-tiny-MoE-instruct -l si -g 1
+
+./run_eval_only.sh -m ../contrastive_training/checkpoints/moe_contrastive_training_test -l si -g 0
 ```
 
 Common flags:

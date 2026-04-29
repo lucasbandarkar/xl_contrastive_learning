@@ -92,7 +92,7 @@ export CUDA_VISIBLE_DEVICES="$REQUESTED_GPUS"
 GPU_COUNT="$(count_gpus "$REQUESTED_GPUS")"
 ACCELERATE_CONFIG="$(accelerate_config_for_gpus "$GPU_COUNT")"
 
-ACCELERATE_ARGS=(accelerate launch --config_file "$ACCELERATE_CONFIG")
+ACCELERATE_ARGS=(uv run accelerate launch --config_file "$ACCELERATE_CONFIG")
 if [[ "$GPU_COUNT" -gt 1 ]]; then
   ACCELERATE_ARGS+=(--num_processes "$GPU_COUNT")
 fi
@@ -106,7 +106,7 @@ RUN_NAME="train_eval-${MODEL_NAME##*/}-${LANGUAGE}"
   --wandb_project "$WANDB_PROJECT" \
   --run_name "$RUN_NAME"
 
-python "$SCRIPT_DIR/evaluate.py" \
+uv run python "$SCRIPT_DIR/evaluate.py" \
   --model_name "${RAM_DISK_OUTPUT}_merged" \
   --language "$LANGUAGE" \
   --run_name "$RUN_NAME" \

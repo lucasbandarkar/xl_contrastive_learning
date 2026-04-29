@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+export VLLM_USE_V1=0
+export HF_DATASETS_TRUST_REMOTE_CODE=1
+
 MODEL_NAME="phi-tiny"
 LANGUAGE=""
 TASK=""
@@ -89,7 +92,7 @@ if [[ -n "$TASK" ]]; then
 fi
 
 cmd=(
-  python "$SCRIPT_DIR/run_eval.py"
+  uv run python "$SCRIPT_DIR/run_eval.py"
   --model_name "$MODEL_NAME"
   --run_name "eval-${MODEL_NAME##*/}${RUN_SUFFIX}"
   --tensor_parallel_size "$GPU_COUNT"

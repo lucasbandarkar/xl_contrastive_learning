@@ -5,3 +5,7 @@ router_weights_*.json
 .vscode/*
 .codex
 language_evals/wandb/*
+*/uv.lock
+*/.venv
+*/checkpoints/*
+*/results/*

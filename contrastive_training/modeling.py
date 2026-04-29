@@ -38,7 +38,7 @@ def load_models(model_name, max_layer=None):
     if max_layer:
         model = PartialMoEModelForCausalLM.from_pretrained(model_name, max_layer)
     else:
-        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16, ) # device_map="auto")
+        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16, device_map="auto")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # Fix FSDP auto-wrap mismatch: Force _no_split_modules to match the EXACT class name 
