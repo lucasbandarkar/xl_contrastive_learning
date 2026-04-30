@@ -156,13 +156,17 @@ class ContrastiveLMTrainer(Trainer):
         combined_attention_mask = torch.cat([inputs['attention_mask_tgt'], inputs['attention_mask_src']], dim=0)
         
         combined_layer_router_logits, combined_logits = self.get_routing_logits(model, combined_input_ids, combined_attention_mask)
-        combined_layer_router_logits = combined_layer_router_logits.clone()
-        combined_logits = combined_logits.clone()
         
         # Split back into target and source
         batch_size = inputs['input_ids_tgt'].size(0)
         masked_router_logits_tgt, masked_router_logits_src = combined_layer_router_logits.split(batch_size, dim=1)
         logits_tgt, logits_src = combined_logits.split(batch_size, dim=0)
+        
+        # Clone the views to prevent inplace backward modification errors from FSDP
+        masked_router_logits_tgt = masked_router_logits_tgt.clone()
+        masked_router_logits_src = masked_router_logits_src.clone()
+        logits_tgt = logits_tgt.clone()
+        logits_src = logits_src.clone()
 
 
         shift_logits_tgt = logits_tgt[..., :-1, :].contiguous()
@@ -218,7 +222,7 @@ class ContrastiveLMTrainer(Trainer):
             return (loss, None, None)
         return (loss, logits, labels)
 
-    def configure_router_only_training(self, max_layer):
+    def configure_router_only_training(self, max_layer, multi_gpu=False):
         """Freeze everything except MoE gate/router linear layers up to max_layer."""
         # this happens before Trainer wraps model for distributed training, so is safe (and more convenient) to use self.model
         
@@ -227,7 +231,7 @@ class ContrastiveLMTrainer(Trainer):
         
         for name, param in self.model.named_parameters():
             # Prevent FSDP crash: Root FSDP module must have trainable parameters to unshard correctly
-            if any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
+            if multi_gpu and any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
                 param.requires_grad = True
                 continue
                 
@@ -239,17 +243,17 @@ class ContrastiveLMTrainer(Trainer):
         
         self.print_trainable_params()
     
-    def configure_early_layer_only_training(self, max_layer):
+    def configure_early_layer_only_training(self, max_layer, multi_gpu=False):
         for name, param in self.model.named_parameters():
             # Check if the parameter belongs to a layer beyond max_layer
-            param.requires_grad = self.is_before_max_layer(name, max_layer)
+            param.requires_grad = self.is_before_max_layer(name, max_layer, multi_gpu)
         
         self.print_trainable_params()
 
-    def is_before_max_layer(self, param_name, max_layer):
+    def is_before_max_layer(self, param_name, max_layer, multi_gpu=False):
         ## before *inclusive of* max_layer
         # Prevent FSDP crash: Root-level parameters must remain trainable
-        if any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
+        if multi_gpu and any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
             return True
             
         match = re.search(r'\.layers\.(\d+)\.', param_name)
@@ -287,6 +291,10 @@ class ContrastiveTrainer(ContrastiveLMTrainer):
         
         batch_size = inputs['input_ids_tgt'].size(0)
         masked_router_logits_tgt, masked_router_logits_src = combined_router_logits.split(batch_size, dim=1)
+        
+        # Clone the views to prevent inplace backward modification errors from FSDP
+        masked_router_logits_tgt = masked_router_logits_tgt.clone()
+        masked_router_logits_src = masked_router_logits_src.clone()
 
         contrastive_loss_val = contrastive_loss_fn(
             masked_router_logits_tgt,

@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from contrastive_trainer import ContrastiveTrainer, ContrastiveLMTrainer
 from trl import SFTTrainer
+import torch
 from modeling import load_models
 from parallel_dataset import load_parallel_datasets, ParallelDataCollator, ConcatenatedDataCollator
 from transformers import TrainingArguments
@@ -16,20 +17,23 @@ def create_training_args(
         partial_training=False,
         batch_size=None,
         test_run=False,
+        fsdp=False,
     ) -> TrainingArguments:
     if not batch_size:
         # ideally, auto_find_batch_size would prevent us from having to use this hacky approach
         batch_size = get_model_config(model_nickname)['batch_sizes']['partial' if partial_training else 'full']
 
     grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32)
+    kwargs = {}
+    if fsdp:
+        kwargs['gradient_checkpointing'] = True
+
     return TrainingArguments(
         output_dir=f"./checkpoints/{create_output_directory_name()}",
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         # gradient_accumulation_steps= grad_accum_steps,
         auto_find_batch_size=True, # pretty complicated to have this work with fixed effective batch size, to figure out later
-        # gradient_checkpointing=True, # allows 2x batch size, but ends up being slower ()
-        gradient_checkpointing_kwargs={"use_reentrant": True},
         use_cache=False,
         optim='adafactor',
         num_train_epochs=1,
@@ -46,13 +50,11 @@ def create_training_args(
         eval_strategy='steps',
         # eval_steps=1/25, # eval 20 times through training
         save_total_limit=1 if not test_run else None,
-        logging_steps=100,
+        logging_steps=200,
         remove_unused_columns=False, # essential for our ParallelDataCollator
         log_on_each_node=False,
-        # packing=True, can't use packing with a custom data collator
-        # fsdp="full_shard auto_wrap",
-        # torch_compile=False, # <-- doesn't make sense with MoE
         # report_to=report
+        **kwargs
     )
 
 def get_model_config(model_nickname):
@@ -77,16 +79,21 @@ def create_output_directory_name():
     return "moe_contrastive_training_test"
 
 def main(args):
+    multi_gpu = False
+    if torch.cuda.device_count() > 1:
+        multi_gpu = True
+    
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
     max_layer = int(args.max_layer) if args.earlyexit else None
-    model, tokenizer = load_models(args.nickname, max_layer=max_layer)
+    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu)
 
-    data_limit = 5000 if args.test_run else None
+    data_limit = 1000 if args.test_run else None
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
 
     Collator = ParallelDataCollator ## ConcatenatedDataCollator if args.baseline else ParallelDataCollator
     custom_data_collator = Collator(tokenizer, key_src, key_tgt)
+
 
     if args.earlyexit:
         training_args = create_training_args(args.nickname, partial_training=True, test_run=args.test_run)
@@ -100,7 +107,7 @@ def main(args):
             max_layer=args.max_layer,
         )
     elif args.baseline:
-        training_args = create_training_args(args.nickname, test_run=args.test_run)
+        training_args = create_training_args(args.nickname, test_run=args.test_run, fsdp=multi_gpu)
         trainer = SFTTrainer(
             model,
             args=training_args,
@@ -108,7 +115,7 @@ def main(args):
             eval_dataset=dataset_valid,
         )
     else:
-        training_args = create_training_args(args.nickname, test_run=args.test_run)
+        training_args = create_training_args(args.nickname, test_run=args.test_run, fsdp=multi_gpu)
         trainer = ContrastiveLMTrainer(
             model,
             args=training_args,
@@ -120,9 +127,9 @@ def main(args):
         )
     if not args.baseline:
         if args.routers_only:
-            trainer.configure_router_only_training(args.max_layer)
+            trainer.configure_router_only_training(args.max_layer, multi_gpu)
         else:
-            trainer.configure_early_layer_only_training(args.max_layer)
+            trainer.configure_early_layer_only_training(args.max_layer, multi_gpu)
     
     trainer.train()
 

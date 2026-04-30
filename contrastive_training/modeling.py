@@ -26,7 +26,7 @@ NICKNAME_TO_MODEL_MAP = {
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
 }
 
-def load_models(model_name, max_layer=None):
+def load_models(model_name, max_layer=None, fsdp=False):
     # load custom MoE model objects, can I use Mohsen's src/modeling/ modifications ?
     # most importantly need to modify forward() function
     # for memory, is there a way to load just the layers that matter ?
@@ -37,8 +37,10 @@ def load_models(model_name, max_layer=None):
     
     if max_layer:
         model = PartialMoEModelForCausalLM.from_pretrained(model_name, max_layer)
+    elif fsdp:
+        model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16)
     else:
-        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16, device_map="auto")
+        model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16, device_map="auto")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # Fix FSDP auto-wrap mismatch: Force _no_split_modules to match the EXACT class name 
@@ -143,7 +145,7 @@ class PartialMoEModelForCausalLM(PartialForwardMoEModelMixin, torch.nn.Module):
         # Load full model temporarily
         full_model = AutoModelForCausalLM.from_pretrained(
             self.config._name_or_path, 
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16
         )
         
         # Extract only what we need, for LlamaForCausalLM structure

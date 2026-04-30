@@ -2,31 +2,31 @@
     "qwen3_30b": {
         "batch_sizes": {
             "partial": 128,
-            "full": 1
+            "full": 8
         }
     },
     "mixtral": {
         "batch_sizes": {
             "partial": 128,
-            "full": 32
+            "full": 16
         }
     },
     "olmoe": {
         "batch_sizes": {
             "partial": 128,
-            "full": 64
+            "full": 16
         }
     },
     "phi-tiny": {
         "batch_sizes": {
             "partial": 128,
-            "full": 64
+            "full": 16
         }
     },
     "ernie": {
         "batch_sizes": {
             "partial": 32,
-            "full": 16
+            "full": 64
         }
     }
 }
