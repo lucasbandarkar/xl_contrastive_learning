@@ -1,9 +1,3 @@
-`CUDA_VISIBLE_DEVICES="6,7" accelerate launch --num_processes 2 train.py -l pes`
-
-`CUDA_VISIBLE_DEVICES="4,5,6,7" accelerate launch --num_processes 4 train.py -l pes`
-
-See accelerate_config.txt
-
 #### Lucas status 3/26/2026
 
 Got a training steps run + eval steps on Phi-moe-tiny-instruct when no FSDP involved (just one GPU):

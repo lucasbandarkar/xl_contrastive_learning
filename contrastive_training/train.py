@@ -78,6 +78,11 @@ def calc_grad_accum_steps(device_batch_size, effective_batch_size):
 def create_output_directory_name():
     return "moe_contrastive_training_test"
 
+def is_aws_server():
+    """Detect if we're running on an AWS server by checking if the /data2/ directory is missing."""
+    # /data2/ exists on the pluslab servers, but not on AWS.
+    return not Path("/data2/").is_dir()
+
 def main(args):
     multi_gpu = False
     if torch.cuda.device_count() > 1:
@@ -86,7 +91,7 @@ def main(args):
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
     max_layer = int(args.max_layer) if args.earlyexit else None
-    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu)
+    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=is_aws_server())
 
     data_limit = 1000 if args.test_run else None
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
@@ -126,9 +131,15 @@ def main(args):
             max_layer=args.max_layer,
         )
     if not args.baseline:
-        if args.routers_only:
+        """
+        freezing modes:
+        0: only train early layers {default}
+        1: only train router/gate weights
+        2: no parameters frozen
+        """
+        if args.freezing_mode == 1:
             trainer.configure_router_only_training(args.max_layer, multi_gpu)
-        else:
+        elif args.freezing_mode == 0:
             trainer.configure_early_layer_only_training(args.max_layer, multi_gpu)
     
     trainer.train()
@@ -157,7 +168,7 @@ if __name__ == "__main__":
     parser.add_argument('-y', '--min_layer', type=int, default=None, help="the first layer at which to calculate contrastive loss")
     parser.add_argument('-x', '--max_layer', type=int, default=14, help="the last layer at which to calculate contrastive loss")
     parser.add_argument('-e', '--earlyexit', action="store_true", help="whether to early exit and not calculate LM loss")
-    parser.add_argument('-r', '--routers_only', action="store_true", help="if passed, only router/gate weights are trained")
+    parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     args = parser.parse_args()

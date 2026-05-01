@@ -26,7 +26,7 @@ NICKNAME_TO_MODEL_MAP = {
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
 }
 
-def load_models(model_name, max_layer=None, fsdp=False):
+def load_models(model_name, max_layer=None, fsdp=False, is_aws=False):
     # load custom MoE model objects, can I use Mohsen's src/modeling/ modifications ?
     # most importantly need to modify forward() function
     # for memory, is there a way to load just the layers that matter ?
@@ -37,14 +37,15 @@ def load_models(model_name, max_layer=None, fsdp=False):
     
     if max_layer:
         model = PartialMoEModelForCausalLM.from_pretrained(model_name, max_layer)
-    elif fsdp:
-        model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16)
-    else:
+    elif is_aws:
+        # clark seemed to want device_map="auto"
         model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16, device_map="auto")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # Fix FSDP auto-wrap mismatch: Force _no_split_modules to match the EXACT class name 
-    if hasattr(model, "model") and hasattr(model.model, "layers") and len(model.model.layers) > 0:
+    if fsdp and hasattr(model, "model") and hasattr(model.model, "layers") and len(model.model.layers) > 0:
         actual_layer_cls = model.model.layers[0].__class__.__name__
         model._no_split_modules = [actual_layer_cls]
         

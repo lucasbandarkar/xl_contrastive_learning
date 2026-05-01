@@ -3,10 +3,72 @@
 from transformers import Trainer
 from datasets import Dataset
 from parallel_dataset import ParallelDataCollator
+from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+POSSIBLE_ROUTER_NAMES = ['mlp.router', 'block_sparse_moe.gate', 'mlp.gate']
+
+
+@dataclass
+class RouterForwardOutput:
+    router_logits: torch.Tensor  # [num_layers, batch, seq, experts]
+    logits: Optional[torch.Tensor]
+
+
+def standardize_router_logits(
+    raw_router_logits,
+    batch_size: int,
+    seq_len: int,
+    attention_mask: torch.Tensor,
+    min_layer: int,
+    max_layer: int,
+) -> torch.Tensor:
+    """Normalize model-specific router outputs to [layers, batch, seq, experts]."""
+    if raw_router_logits is None:
+        raise ValueError(
+            "Model did not return router_logits. Ensure the model supports "
+            "output_router_logits=True or add a model-specific adapter."
+        )
+
+    selected_router_logits = raw_router_logits[min_layer - 1:max_layer]
+    mask = attention_mask.unsqueeze(-1)
+
+    if isinstance(selected_router_logits, torch.Tensor):
+        router_logits = selected_router_logits
+
+        if router_logits.dim() == 3:
+            router_logits = router_logits.unsqueeze(0)
+
+        if router_logits.dim() != 4:
+            raise ValueError(f"Expected router logits with 3 or 4 dims, got {router_logits.shape}.")
+
+        if router_logits.shape[1] != batch_size or router_logits.shape[2] != seq_len:
+            router_logits = router_logits.reshape(router_logits.shape[0], batch_size, seq_len, -1)
+
+        return router_logits * mask.unsqueeze(0)
+    else:
+        router_layers = []
+        for layer_router_logits in selected_router_logits:
+            if layer_router_logits.dim() == 2:
+                layer_router_logits = layer_router_logits.reshape(batch_size, seq_len, -1)
+            elif layer_router_logits.dim() == 3:
+                layer_router_logits = layer_router_logits.reshape(batch_size, seq_len, -1)
+            else:
+                raise ValueError(f"Unexpected router-logit shape: {layer_router_logits.shape}.")
+
+            router_layers.append(layer_router_logits * mask)
+
+        if not router_layers:
+            raise ValueError(
+                f"No router logits found for layers [{min_layer}, {max_layer}]. "
+                "Check that the model exposes enough MoE layers."
+            )
+
+        return torch.stack(router_layers, dim=0)
+
 
 def contrastive_loss_fn(
         router_logits_tgt, mask_tgt,
@@ -131,17 +193,15 @@ class ContrastiveLMTrainer(Trainer):
         ) ## NOTE: since doing LM loss, need to do full forward pass
 
         B, L = input_ids.shape
-        selected_router_logits = []
-        for layer_router_logits in outputs.router_logits[self.min_layer - 1:self.max_layer]:
-            selected_router_logits.append(
-                layer_router_logits.view(B, L, -1) * attention_mask.unsqueeze(-1)
-            )
-        if not selected_router_logits:
-            raise ValueError(
-                f"No router logits found for layers [{self.min_layer}, {self.max_layer}]. "
-                "Check that the model exposes enough MoE layers."
-            )
-        return torch.stack(selected_router_logits, dim=0), outputs.logits
+        router_logits = standardize_router_logits(
+            outputs.router_logits,
+            batch_size=B,
+            seq_len=L,
+            attention_mask=attention_mask,
+            min_layer=self.min_layer,
+            max_layer=self.max_layer,
+        )
+        return RouterForwardOutput(router_logits=router_logits, logits=outputs.logits)
 
     def compute_loss(
         self,
@@ -155,7 +215,9 @@ class ContrastiveLMTrainer(Trainer):
         combined_input_ids = torch.cat([inputs['input_ids_tgt'], inputs['input_ids_src']], dim=0)
         combined_attention_mask = torch.cat([inputs['attention_mask_tgt'], inputs['attention_mask_src']], dim=0)
         
-        combined_layer_router_logits, combined_logits = self.get_routing_logits(model, combined_input_ids, combined_attention_mask)
+        router_outputs = self.get_routing_logits(model, combined_input_ids, combined_attention_mask)
+        combined_layer_router_logits = router_outputs.router_logits
+        combined_logits = router_outputs.logits
         
         # Split back into target and source
         batch_size = inputs['input_ids_tgt'].size(0)
@@ -226,16 +288,13 @@ class ContrastiveLMTrainer(Trainer):
         """Freeze everything except MoE gate/router linear layers up to max_layer."""
         # this happens before Trainer wraps model for distributed training, so is safe (and more convenient) to use self.model
         
-        # TODO: make sure all names of the router are captured here
-        possible_names = ['mlp.router', 'block_sparse_moe.gate', 'mlp.gate']
-        
         for name, param in self.model.named_parameters():
             # Prevent FSDP crash: Root FSDP module must have trainable parameters to unshard correctly
             if multi_gpu and any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
                 param.requires_grad = True
                 continue
                 
-            if any(identifier in name for identifier in possible_names):
+            if any(identifier in name for identifier in POSSIBLE_ROUTER_NAMES):
                 # Check if the parameter belongs to a layer beyond max_layer
                 if self.is_beyond_max_layer(name, max_layer):
                     continue
@@ -253,14 +312,20 @@ class ContrastiveLMTrainer(Trainer):
     def is_before_max_layer(self, param_name, max_layer, multi_gpu=False):
         ## before *inclusive of* max_layer
         # Prevent FSDP crash: Root-level parameters must remain trainable
-        if multi_gpu and any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
-            return True
+        # if multi_gpu and any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
+        #     return True
             
         match = re.search(r'\.layers\.(\d+)\.', param_name)
         if match:
             layer_idx = int(match.group(1))
-            if layer_idx <= max_layer:
+            if layer_idx < max_layer:
                 return True
+            elif layer_idx == max_layer:
+                # TODO: freeze everything that is the router and before
+                if any(identifier in param_name for identifier in POSSIBLE_ROUTER_NAMES):
+                    return True
+                elif "att" in param_name: # TODO: THIS SURELY DOESN't cover everything
+                    return True
         return False
 
     def print_trainable_params(self):
@@ -287,7 +352,8 @@ class ContrastiveTrainer(ContrastiveLMTrainer):
         combined_input_ids = torch.cat([inputs['input_ids_tgt'], inputs['input_ids_src']], dim=0)
         combined_attention_mask = torch.cat([inputs['attention_mask_tgt'], inputs['attention_mask_src']], dim=0)
         
-        combined_router_logits, _ = self.get_routing_logits(model, combined_input_ids, combined_attention_mask)
+        router_outputs = self.get_routing_logits(model, combined_input_ids, combined_attention_mask)
+        combined_router_logits = router_outputs.router_logits
         
         batch_size = inputs['input_ids_tgt'].size(0)
         masked_router_logits_tgt, masked_router_logits_src = combined_router_logits.split(batch_size, dim=1)
