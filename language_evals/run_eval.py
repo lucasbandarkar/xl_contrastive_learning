@@ -90,10 +90,8 @@ class VLLMWrapper:
 
 def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel_size: int = 1) -> VLLMWrapper:
     
-    # Apply a vLLM patch (fixes MoE head_dim mismatch)
     from vllm_phimoe_patch import apply_vllm_phimoe_patch
-    if "phi" in model_path.lower():
-        apply_vllm_phimoe_patch(model_path)
+    apply_vllm_phimoe_patch(model_path)
 
     lm_eval_model_cls = get_model("vllm")
     

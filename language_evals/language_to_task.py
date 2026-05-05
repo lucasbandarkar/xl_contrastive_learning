@@ -14,6 +14,9 @@ LANGUAGE_TO_TASK = {
     "bn": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "fr": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "ar": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
+    "hi": ["belebele", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
+    "id": ["belebele", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
+    "th": ["belebele", "mgsm", "mmlu_prox", "flores", "multiloko", "global_piqa"],
 }
 
 FLORES_LANGCODE_MAP = {
@@ -23,6 +26,9 @@ FLORES_LANGCODE_MAP = {
     "bn": "ben_Beng",
     "fr": "fra_Latn",
     "ar": "arb_Arab",
+    "hi": "hin_Deva",
+    "id": "ind_Latn",
+    "th": "tha_Thai",
 }
 
 CODE_TO_INCLUDE_NAME = {
@@ -30,6 +36,9 @@ CODE_TO_INCLUDE_NAME = {
     "bn": "Bengali",
     "fr": "French",
     "ar": "Arabic",
+    "hi": "Hindi",
+    "id": "Indonesian",
+    "th": "Thai",
 }
 
 CODE_TO_MULTILOKO_NAME = {
@@ -38,4 +47,7 @@ CODE_TO_MULTILOKO_NAME = {
     "bn": "bengali",
     "fr": "french",
     "ar": "arabic",
+    "hi": "hindi",
+    "id": "indonesian",
+    "th": "thai",
 }

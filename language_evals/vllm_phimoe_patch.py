@@ -84,6 +84,7 @@ def apply_vllm_phimoe_patch(model_path: str):
 
     # Register this patched model for the checkpoint's architecture name
     ModelRegistry.register_model("PhimoeForCausalLM", PatchedPhiMoEForCausalLM)
+    ModelRegistry.register_model("PhiMoEForCausalLM", PatchedPhiMoEForCausalLM)
 
     # 5. Fallback/Mock logic for remote code import
     sys.modules["flash_attn"] = MagicMock()

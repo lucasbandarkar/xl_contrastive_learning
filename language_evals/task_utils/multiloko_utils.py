@@ -67,4 +67,32 @@ MULTILOKO_PROMPT_BUILDERS = {
             "R :"
         )
     ),
+    "hindi": lambda examples, question, output_type: (
+        "जितना संभव हो सके संक्षिप्त में प्रश्नों के उत्तर दें।\n"
+        + "".join(
+            f"प्र: {example['question']} केवल एक {example['output_type']} दें\n"
+            f"উ: {example['prompt_answer']}\n"
+            for example in examples
+        )
+        + f"प्र: {question} केवल एक {output_type} दें\nউ:"
+    ),
+    "thai": lambda examples, question, output_type: (
+        "ตอบคำถามต่อไปนี้ให้กระชับที่สุดเท่าที่จะเป็นไปได้\n"
+        + "".join(
+            f"คำถาม: {example['question']} โปรดตอบเฉพาะ {example['output_type']}\n"
+            f"คำตอบ: {example['prompt_answer']}\n"
+            for example in examples
+        )
+        + f"คำถาม: {question} โปรดตอบเฉพาะ {output_type}\nคำตอบ:"
+    ),
+    "indonesian": lambda examples, question, output_type: (
+        "Jawab pertanyaan berikut sesingkat mungkin.\n"
+        + "".join(
+            f"T: {example['question']} Berikan hanya {example['output_type']}.\n"
+            f"J: {example['prompt_answer']}\n"
+            for example in examples
+        )
+        + f"T: {question} Berikan hanya {output_type}.\nJ:"
+    ),
+    
 }

@@ -11,5 +11,6 @@ dependencies = [
     "lm-eval>=0.4.11",
     "peft>=0.19.1",
     "datasets<3.0.0",
+    "llamafactory>=0.8.3",
 ]
 

@@ -1,0 +1,31 @@
+{
+    "belebele": {
+        "belebele_hin_Deva": 0.296
+    },
+    "mmlu_prox": {
+        "mmlu_prox_hi": 0.0
+    },
+    "global_mmlu_medical": {
+        "hi": 0.3
+    },
+    "flores": {
+        "hi": 0.147
+    },
+    "multiloko": {
+        "hi": 0.012
+    },
+    "include": {
+        "include_base_44_hindi": 0.285,
+        "include_base_44_hindi_applied_science": 0.338,
+        "include_base_44_hindi_arts_humanities": 0.365,
+        "include_base_44_hindi_driving_license": 0.31,
+        "include_base_44_hindi_general_knowledge": 0.296,
+        "include_base_44_hindi_health_oriented_education": 0.169,
+        "include_base_44_hindi_professional_certification": 0.31,
+        "include_base_44_hindi_social_science": 0.197,
+        "include_base_44_hindi_stem": 0.24
+    },
+    "global_piqa": {
+        "global_piqa_completions_hin_deva": 0.43
+    }
+}

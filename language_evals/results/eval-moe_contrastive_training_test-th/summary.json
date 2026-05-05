@@ -1,0 +1,20 @@
+{
+    "belebele": {
+        "belebele_tha_Thai": 0.222
+    },
+    "mgsm": {
+        "th": 0.0
+    },
+    "mmlu_prox": {
+        "mmlu_prox_th": 0.0
+    },
+    "flores": {
+        "th": 0.199
+    },
+    "multiloko": {
+        "th": 0.0
+    },
+    "global_piqa": {
+        "global_piqa_completions_tha_thai": 0.53
+    }
+}
