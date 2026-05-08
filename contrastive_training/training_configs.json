@@ -24,9 +24,17 @@
         }
     },
     "ernie": {
+        "auto_find_batch_size": false,
         "batch_sizes": {
             "partial": 32,
             "full": 64
+        },
+        "batch_sizes_by_gpu": {
+            "full": {
+                "2": 16,
+                "3": 32,
+                "4": 32
+            }
         }
     }
 }

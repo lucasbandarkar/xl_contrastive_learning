@@ -17,15 +17,16 @@ def create_training_args(
         partial_training=False,
         batch_size=None,
         test_run=False,
-        fsdp=False,
+        num_gpus=1,
     ) -> TrainingArguments:
+    model_config = get_model_config(model_nickname)
+    training_mode = 'partial' if partial_training else 'full'
     if not batch_size:
-        # ideally, auto_find_batch_size would prevent us from having to use this hacky approach
-        batch_size = get_model_config(model_nickname)['batch_sizes']['partial' if partial_training else 'full']
+        batch_size = get_configured_batch_size(model_config, training_mode, num_gpus)
 
     grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32)
     kwargs = {}
-    if fsdp:
+    if num_gpus > 1:
         kwargs['gradient_checkpointing'] = True
 
     return TrainingArguments(
@@ -33,7 +34,7 @@ def create_training_args(
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         # gradient_accumulation_steps= grad_accum_steps,
-        auto_find_batch_size=True, # pretty complicated to have this work with fixed effective batch size, to figure out later
+        auto_find_batch_size=model_config.get('auto_find_batch_size', True),
         use_cache=False,
         optim='adafactor',
         num_train_epochs=1,
@@ -63,6 +64,11 @@ def get_model_config(model_nickname):
         model_config = json.load(file)[model_nickname]
     return model_config
 
+def get_configured_batch_size(model_config, training_mode, num_gpus):
+    batch_size = model_config['batch_sizes'][training_mode]
+    gpu_overrides = model_config.get('batch_sizes_by_gpu', {}).get(training_mode, {})
+    return gpu_overrides.get(str(num_gpus), batch_size)
+
 def calc_grad_accum_steps(device_batch_size, effective_batch_size):
     """
     In order to maintain sufficiently large effective batch size, calculates number of gradient accumulation steps with current training conditions.
@@ -84,9 +90,8 @@ def is_aws_server():
     return not Path("/data2/").is_dir()
 
 def main(args):
-    multi_gpu = False
-    if torch.cuda.device_count() > 1:
-        multi_gpu = True
+    num_gpus = torch.cuda.device_count()
+    multi_gpu = num_gpus > 1
     
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
@@ -101,7 +106,12 @@ def main(args):
 
 
     if args.earlyexit:
-        training_args = create_training_args(args.nickname, partial_training=True, test_run=args.test_run)
+        training_args = create_training_args(
+            args.nickname,
+            partial_training=True,
+            test_run=args.test_run,
+            num_gpus=num_gpus,
+        )
         trainer = ContrastiveTrainer(
             model,
             args=training_args,
@@ -112,7 +122,11 @@ def main(args):
             max_layer=args.max_layer,
         )
     elif args.baseline:
-        training_args = create_training_args(args.nickname, test_run=args.test_run, fsdp=multi_gpu)
+        training_args = create_training_args(
+            args.nickname,
+            test_run=args.test_run,
+            num_gpus=num_gpus,
+        )
         trainer = SFTTrainer(
             model,
             args=training_args,
@@ -120,7 +134,11 @@ def main(args):
             eval_dataset=dataset_valid,
         )
     else:
-        training_args = create_training_args(args.nickname, test_run=args.test_run, fsdp=multi_gpu)
+        training_args = create_training_args(
+            args.nickname,
+            test_run=args.test_run,
+            num_gpus=num_gpus,
+        )
         trainer = ContrastiveLMTrainer(
             model,
             args=training_args,
