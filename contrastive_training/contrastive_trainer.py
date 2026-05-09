@@ -245,14 +245,16 @@ class ContrastiveLMTrainer(Trainer):
         # 200 because contrastive_loss_val is typically in ~0.05 and lm_loss_tgt is typically in range of ~10-15
         total_loss = lm_loss_tgt + 200 * self.alpha_contrastive * contrastive_loss_val
         
-        log_outputs = {
-            "logits_tgt": logits_tgt,
-            "logits_src": logits_src,
-            "lm_loss_tgt": lm_loss_tgt.item(), # Convert to scalar for logging
-            "contrastive_loss_val": contrastive_loss_val.item(), # Convert to scalar for logging
-            "total_loss_computed": total_loss.item() # Add total loss to outputs for logging
-        }
-        return (total_loss, log_outputs) if return_outputs else total_loss
+        if return_outputs:
+            log_outputs = {
+                "logits_tgt": logits_tgt,
+                "logits_src": logits_src,
+                "lm_loss_tgt": lm_loss_tgt.detach(),
+                "contrastive_loss_val": contrastive_loss_val.detach(),
+                "total_loss_computed": total_loss.detach(),
+            }
+            return total_loss, log_outputs
+        return total_loss
     
     def prediction_step(
         self,
@@ -369,10 +371,12 @@ class ContrastiveTrainer(ContrastiveLMTrainer):
             inputs['attention_mask_src'],
             self.scoring_func
         )
-        # Ensure consistent output structure for logging in prediction_step
-        log_outputs = {
-            "lm_loss_tgt": 0.0, # No LM loss in ContrastiveTrainer
-            "contrastive_loss_val": contrastive_loss_val.item(),
-            "total_loss_computed": contrastive_loss_val.item() # Total loss is just contrastive loss here
-        }
-        return (contrastive_loss_val, log_outputs) if return_outputs else contrastive_loss_val
+        if return_outputs:
+            # Ensure consistent output structure for logging in prediction_step.
+            log_outputs = {
+                "lm_loss_tgt": contrastive_loss_val.new_zeros(()),
+                "contrastive_loss_val": contrastive_loss_val.detach(),
+                "total_loss_computed": contrastive_loss_val.detach(),
+            }
+            return contrastive_loss_val, log_outputs
+        return contrastive_loss_val
