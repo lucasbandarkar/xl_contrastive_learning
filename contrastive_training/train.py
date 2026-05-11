@@ -1,9 +1,13 @@
 from argparse import ArgumentParser
-from contrastive_trainer import ContrastiveTrainer, ContrastiveLMTrainer
-from trl import SFTTrainer
+from contrastive_trainer import ContrastiveTrainer, ContrastiveLMTrainer, TargetLMTrainer, TranslationSFTTrainer
 import torch
 from modeling import load_models
-from parallel_dataset import load_parallel_datasets, ParallelDataCollator, ConcatenatedDataCollator
+from parallel_dataset import (
+    load_parallel_datasets,
+    ParallelDataCollator,
+    TargetLanguageCausalLMCollator,
+    format_translation_sft_dataset,
+)
 from transformers import TrainingArguments
 import json
 import shutil
@@ -18,6 +22,7 @@ def create_training_args(
         batch_size=None,
         test_run=False,
         num_gpus=1,
+        is_aws=False,
     ) -> TrainingArguments:
     model_config = get_model_config(model_nickname)
     training_mode = 'partial' if partial_training else 'full'
@@ -29,8 +34,10 @@ def create_training_args(
     if num_gpus > 1:
         kwargs['gradient_checkpointing'] = True
 
+    location = "." if is_aws else "/data2/lucasbandarkar"
+
     return TrainingArguments(
-        output_dir=f"./checkpoints/{create_output_directory_name()}",
+        output_dir=f"{location}/checkpoints/{create_output_directory_name()}",
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         # gradient_accumulation_steps= grad_accum_steps,
@@ -79,7 +86,7 @@ def calc_grad_accum_steps(device_batch_size, effective_batch_size):
     while grad_accum_steps * world_size * device_batch_size < effective_batch_size:
         grad_accum_steps *= 2
         
-    num_warmup_steps = int(24000 / effective_batch_size) # warmup lasts 24k samples, regardless of what batch size is
+    num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 24k samples, regardless of what batch size is
     return grad_accum_steps, num_warmup_steps
 
 def create_output_directory_name():
@@ -97,13 +104,11 @@ def main(args):
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
     max_layer = int(args.max_layer) if args.earlyexit else None
-    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=is_aws_server())
+    aws = is_aws_server()
+    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=aws)
 
-    data_limit = 1000 if args.test_run else None
+    data_limit = 1000 if args.test_run else 10000
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
-
-    Collator = ParallelDataCollator ## ConcatenatedDataCollator if args.baseline else ParallelDataCollator
-    custom_data_collator = Collator(tokenizer, key_src, key_tgt)
 
 
     if args.earlyexit:
@@ -112,43 +117,63 @@ def main(args):
             partial_training=True,
             test_run=args.test_run,
             num_gpus=num_gpus,
+            is_aws=aws,
         )
         trainer = ContrastiveTrainer(
             model,
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
-            data_collator=custom_data_collator,
+            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
         )
-    elif args.baseline:
+    elif args.baseline and args.baseline_mode == "target_lm":
         training_args = create_training_args(
             args.nickname,
             test_run=args.test_run,
             num_gpus=num_gpus,
+            is_aws=aws,
+
         )
-        trainer = SFTTrainer(
+        trainer = TargetLMTrainer(
             model,
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
+            data_collator=TargetLanguageCausalLMCollator(tokenizer, key_src, key_tgt),
+        )
+    elif args.baseline and args.baseline_mode == "translation_sft":
+        training_args = create_training_args(
+            args.nickname,
+            test_run=args.test_run,
+            num_gpus=num_gpus,
+            is_aws=aws,
+        )
+        trainer = TranslationSFTTrainer(
+            model,
+            args=training_args,
+            train_dataset=format_translation_sft_dataset(dataset_train, tokenizer, key_src, key_tgt),
+            eval_dataset=format_translation_sft_dataset(dataset_valid, tokenizer, key_src, key_tgt),
+            processing_class=tokenizer,
         )
     else:
         training_args = create_training_args(
             args.nickname,
             test_run=args.test_run,
             num_gpus=num_gpus,
+            is_aws=aws,
         )
         trainer = ContrastiveLMTrainer(
             model,
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
-            data_collator=custom_data_collator,
+            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
         )
+
     if not args.baseline:
         """
         freezing modes:
@@ -190,6 +215,12 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
+    parser.add_argument(
+        '--baseline_mode',
+        choices=["translation_sft", "target_lm"],
+        default="translation_sft",
+        help="which baseline to run when --baseline is passed",
+    )
     args = parser.parse_args()
 
     if args.min_layer is None:

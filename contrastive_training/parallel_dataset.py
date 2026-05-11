@@ -4,6 +4,16 @@ from datasets import load_dataset
 import torch
 from typing import List, Dict, Any
 
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "fa": "Persian",
+    "pes": "Persian",
+    "bn": "Bengali",
+    "ben": "Bengali",
+}
+
+
 class ParallelDataCollator:
     # does it make sense to inherit from DPODataCollatorWithPadding ??
     def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key):
@@ -54,27 +64,34 @@ class ParallelDataCollator:
             "input_ids_tgt": all_batch["input_ids"][batch_size:],
             "attention_mask_tgt": all_batch["attention_mask"][batch_size:],
         }
-        return batch
-    
-class ParallelInstructDataCollator:
-    # same as above but with instruction data
-    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        # TODO: build this for instruction data, that is each input has prompt and answer
+        labels_tgt = batch["input_ids_tgt"].clone()
+        labels_tgt[batch["attention_mask_tgt"] == 0] = -100
+        batch["labels_tgt"] = labels_tgt
         return batch
 
-    
-class ConcatenatedDataCollator:
-    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key):
+
+class TargetLanguageCausalLMCollator:
+    """Build target-language-only batches for an LM-only CPT baseline."""
+
+    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=512):
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
+        self.max_length = max_length
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        # Extract both language's sentences from the batch features using the language keys passed into the constructor
-        src_sentences = [feature["translation"][self.src_key] for feature in features]
         tgt_sentences = [feature["translation"][self.tgt_key] for feature in features]
+        batch = self.tokenizer(
+            tgt_sentences,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
 
-        # TODO: implement the data formatting for this baseline
+        labels = batch["input_ids"].clone()
+        labels[batch["attention_mask"] == 0] = -100
+        batch["labels"] = labels
         return batch
 
 
@@ -127,3 +144,33 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
 
         # TODO: finish the processing of MGSMInstruct and also of "Mathoctopus/MSVAMP"
         msvamp = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train")
+
+
+def format_translation_sft_dataset(dataset, tokenizer, src_language_key, tgt_language_key, max_length=512):
+    src_name = LANGUAGE_NAMES.get(src_language_key, src_language_key)
+    tgt_name = LANGUAGE_NAMES.get(tgt_language_key, tgt_language_key)
+
+    def format_example(example):
+        src_text = example["translation"][src_language_key]
+        tgt_text = example["translation"][tgt_language_key]
+        prompt = (
+            f"Translate the following text from {src_name} to {tgt_name}. "
+            "Return only the translation.\n\n"
+            f"{src_text}\n\n"
+            "Translation:\n"
+        )
+        completion = tgt_text
+        if tokenizer.eos_token:
+            completion += tokenizer.eos_token
+
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        completion_ids = tokenizer(completion, add_special_tokens=False)["input_ids"]
+        input_ids = (prompt_ids + completion_ids)[:max_length]
+        completion_mask = ([0] * len(prompt_ids) + [1] * len(completion_ids))[:max_length]
+
+        return {
+            "input_ids": input_ids,
+            "completion_mask": completion_mask,
+        }
+
+    return dataset.map(format_example, remove_columns=dataset.column_names)

@@ -1,8 +1,7 @@
 # from llamafactory.train.pt.trainer import CustomTrainer
 # from trl import SFT_Trainer
 from transformers import Trainer
-from datasets import Dataset
-from parallel_dataset import ParallelDataCollator
+from trl import SFTTrainer
 from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
@@ -10,6 +9,55 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 POSSIBLE_ROUTER_NAMES = ['mlp.router', 'block_sparse_moe.gate', 'mlp.gate']
+
+
+class FreezableTrainerMixin:
+    def print_trainable_params(self):
+        trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.model.parameters())
+        print(f"Trainable: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
+
+    def configure_router_only_training(self, max_layer, multi_gpu=False):
+        """Freeze everything except MoE gate/router linear layers up to max_layer."""
+        for name, param in self.model.named_parameters():
+            # Prevent FSDP crash: Root FSDP module must have trainable parameters to unshard correctly
+            if multi_gpu and any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
+                param.requires_grad = True
+                continue
+
+            is_router_param = any(identifier in name for identifier in POSSIBLE_ROUTER_NAMES)
+            param.requires_grad = is_router_param and not self.is_beyond_max_layer(name, max_layer)
+
+        self.print_trainable_params()
+
+    def configure_early_layer_only_training(self, max_layer, multi_gpu=False):
+        for name, param in self.model.named_parameters():
+            param.requires_grad = self.is_before_max_layer(name, max_layer, multi_gpu)
+
+        self.print_trainable_params()
+
+    def is_before_max_layer(self, param_name, max_layer, multi_gpu=False):
+        ## before *inclusive of* max_layer
+        # Prevent FSDP crash: Root-level parameters must remain trainable
+        # if multi_gpu and any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
+        #     return True
+
+        match = re.search(r'\.layers\.(\d+)\.', param_name)
+        if match:
+            layer_idx = int(match.group(1))
+            if layer_idx < max_layer:
+                return True
+            elif layer_idx == max_layer:
+                # TODO: freeze everything that is the router and before
+                if any(identifier in param_name for identifier in POSSIBLE_ROUTER_NAMES):
+                    return True
+                elif "att" in param_name: # TODO: THIS SURELY DOESN't cover everything
+                    return True
+        return False
+
+    def is_beyond_max_layer(self, param_name, max_layer):
+        match = re.search(r'\.layers\.(\d+)\.', param_name)
+        return bool(match and int(match.group(1)) >= max_layer)
 
 
 @dataclass
@@ -165,7 +213,15 @@ def contrastive_loss_fn(
     
     # elif token_aggregation == 4:
 
-class ContrastiveLMTrainer(Trainer):
+class TargetLMTrainer(FreezableTrainerMixin, Trainer):
+    pass
+
+
+class TranslationSFTTrainer(FreezableTrainerMixin, SFTTrainer):
+    pass
+
+
+class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
     def __init__(
         self,
         *args,
@@ -232,7 +288,8 @@ class ContrastiveLMTrainer(Trainer):
 
 
         shift_logits_tgt = logits_tgt[..., :-1, :].contiguous()
-        shift_labels_tgt = inputs['input_ids_tgt'][..., 1:].contiguous()
+        labels_tgt = inputs.get('labels_tgt', inputs['input_ids_tgt'])
+        shift_labels_tgt = labels_tgt[..., 1:].contiguous()
         lm_loss_tgt = self.lm_loss_fct(shift_logits_tgt.view(-1, shift_logits_tgt.size(-1)), shift_labels_tgt.view(-1))
 
         contrastive_loss_val = contrastive_loss_fn(
@@ -280,61 +337,12 @@ class ContrastiveLMTrainer(Trainer):
             # Extract the specific parts for evaluation
             # We focus on the target language for the 'logits' and 'labels'
             logits = outputs.get("logits_tgt")
-            labels = inputs.get("input_ids_tgt")
+            labels = inputs.get("labels_tgt", inputs.get("input_ids_tgt"))
 
         if prediction_loss_only:
             return (loss, None, None)
         return (loss, logits, labels)
 
-    def configure_router_only_training(self, max_layer, multi_gpu=False):
-        """Freeze everything except MoE gate/router linear layers up to max_layer."""
-        # this happens before Trainer wraps model for distributed training, so is safe (and more convenient) to use self.model
-        
-        for name, param in self.model.named_parameters():
-            # Prevent FSDP crash: Root FSDP module must have trainable parameters to unshard correctly
-            if multi_gpu and any(k in name for k in ["embed_tokens", "norm", "lm_head"]):
-                param.requires_grad = True
-                continue
-                
-            if any(identifier in name for identifier in POSSIBLE_ROUTER_NAMES):
-                # Check if the parameter belongs to a layer beyond max_layer
-                if self.is_beyond_max_layer(name, max_layer):
-                    continue
-            param.requires_grad = False
-        
-        self.print_trainable_params()
-    
-    def configure_early_layer_only_training(self, max_layer, multi_gpu=False):
-        for name, param in self.model.named_parameters():
-            # Check if the parameter belongs to a layer beyond max_layer
-            param.requires_grad = self.is_before_max_layer(name, max_layer, multi_gpu)
-        
-        self.print_trainable_params()
-
-    def is_before_max_layer(self, param_name, max_layer, multi_gpu=False):
-        ## before *inclusive of* max_layer
-        # Prevent FSDP crash: Root-level parameters must remain trainable
-        # if multi_gpu and any(k in param_name for k in ["embed_tokens", "norm", "lm_head"]):
-        #     return True
-            
-        match = re.search(r'\.layers\.(\d+)\.', param_name)
-        if match:
-            layer_idx = int(match.group(1))
-            if layer_idx < max_layer:
-                return True
-            elif layer_idx == max_layer:
-                # TODO: freeze everything that is the router and before
-                if any(identifier in param_name for identifier in POSSIBLE_ROUTER_NAMES):
-                    return True
-                elif "att" in param_name: # TODO: THIS SURELY DOESN't cover everything
-                    return True
-        return False
-
-    def print_trainable_params(self):
-        trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        total = sum(p.numel() for p in self.model.parameters())
-        print(f"Trainable: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
-    
 class ContrastiveTrainer(ContrastiveLMTrainer):
     def __init__(self, *args, **kwargs):
         self.training_type = 'full'
