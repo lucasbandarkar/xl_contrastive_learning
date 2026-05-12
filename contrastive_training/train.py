@@ -16,6 +16,7 @@ import huggingface_hub
 
 def create_training_args(
         model_nickname,
+        output_dir=None,
         learning_rate=1e-6,
         lr_scheduler='constant_with_warmup',
         partial_training=False,
@@ -26,7 +27,8 @@ def create_training_args(
     ) -> TrainingArguments:
     model_config = get_model_config(model_nickname)
     training_mode = 'partial' if partial_training else 'full'
-    if not batch_size:
+    manual_batch_size = batch_size is not None
+    if not manual_batch_size:
         batch_size = get_configured_batch_size(model_config, training_mode, num_gpus)
 
     grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32)
@@ -37,11 +39,11 @@ def create_training_args(
     location = "." if is_aws else "/data2/lucasbandarkar"
 
     return TrainingArguments(
-        output_dir=f"{location}/checkpoints/{create_output_directory_name()}",
+        output_dir=f"{location}/checkpoints/{output_dir}",
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         # gradient_accumulation_steps= grad_accum_steps,
-        auto_find_batch_size=model_config.get('auto_find_batch_size', True),
+        auto_find_batch_size=False if manual_batch_size else model_config.get('auto_find_batch_size', True),
         use_cache=False,
         # optim='adafactor',
         optim='adamw_torch_fused',
@@ -89,8 +91,25 @@ def calc_grad_accum_steps(device_batch_size, effective_batch_size):
     num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 24k samples, regardless of what batch size is
     return grad_accum_steps, num_warmup_steps
 
-def create_output_directory_name():
-    return "moe_contrastive_training_test"
+def create_output_directory_name(args, data_limit):
+    prefix = f"{args.nickname}_{args.language}"
+    suffix = f"{data_limit//1000}k"
+    training_details = ""
+    if args.baseline:
+        training_details += f"baseline-{args.baseline_mode}"
+    else:
+        if args.earlyexit:
+            training_details += "earlyexit"
+
+        if args.min_layer:
+            training_details += f"_L{args.min_layer}-{args.max_layer}"
+        else:
+            training_details = f"_L{args.max_layer}"
+        
+        if args.freezing_mode == 1: 
+            training_details += "_routers"
+
+    return f"{prefix}_{training_details}_{suffix}"
 
 def is_aws_server():
     """Detect if we're running on an AWS server by checking if the /data2/ directory is missing."""
@@ -110,11 +129,14 @@ def main(args):
     data_limit = 1000 if args.test_run else 10000
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
 
+    output_dir_name = create_output_directory_name(args, data_limit)
 
     if args.earlyexit:
         training_args = create_training_args(
             args.nickname,
+            output_dir=output_dir_name,
             partial_training=True,
+            batch_size=args.batch_size,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -131,6 +153,8 @@ def main(args):
     elif args.baseline and args.baseline_mode == "target_lm":
         training_args = create_training_args(
             args.nickname,
+            output_dir=output_dir_name,
+            batch_size=args.batch_size,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -146,6 +170,8 @@ def main(args):
     elif args.baseline and args.baseline_mode == "translation_sft":
         training_args = create_training_args(
             args.nickname,
+            output_dir=output_dir_name,
+            batch_size=args.batch_size,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -160,6 +186,8 @@ def main(args):
     else:
         training_args = create_training_args(
             args.nickname,
+            output_dir=output_dir_name,
+            batch_size=args.batch_size,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -190,17 +218,25 @@ def main(args):
 
     output_dir = trainer.args.output_dir
     trainer.save_model(output_dir)
-    tokenizer.save_pretrained(output_dir)
+    if trainer.is_world_process_zero():
+        tokenizer.save_pretrained(output_dir)
 
-    # Copy custom model code files (e.g. configuration_slimmoe.py, modeling_slimmoe.py)
-    # into the checkpoint so it can be loaded standalone with trust_remote_code=True
-    cache_dir = Path(huggingface_hub.snapshot_download(model.config._name_or_path, local_files_only=True))
-    for entry in model.config.auto_map.values():
-        py_file = entry.split(".")[0] + ".py"  # e.g. "configuration_slimmoe"
-        src = cache_dir / py_file
-        if src.exists():
-            shutil.copy2(src, Path(output_dir) / py_file)
-            print(f"Copied {py_file} into {output_dir}")
+        # Copy custom model code files (e.g. configuration_slimmoe.py, modeling_slimmoe.py)
+        # into the checkpoint so it can be loaded standalone with trust_remote_code=True.
+        auto_map = getattr(model.config, "auto_map", None)
+        if auto_map:
+            for entry in auto_map.values():
+                py_file = entry.split(".")[0] + ".py"  # e.g. "configuration_slimmoe.py"
+                try:
+                    src = huggingface_hub.hf_hub_download(
+                        model.config._name_or_path,
+                        py_file,
+                        local_files_only=True,
+                    )
+                except Exception:
+                    src = huggingface_hub.hf_hub_download(model.config._name_or_path, py_file)
+                shutil.copy2(src, Path(output_dir) / py_file)
+                print(f"Copied {py_file} into {output_dir}")
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -214,6 +250,7 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--earlyexit', action="store_true", help="whether to early exit and not calculate LM loss")
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
+    parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',

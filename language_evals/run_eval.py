@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import sys
 
 import gc
 import json
@@ -16,6 +17,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from language_to_task import LANGUAGE_TO_TASK
 from task_evaluators import TASK_EVALUATOR_REGISTRY
+from export_fsdp_checkpoint import export_checkpoint, find_fsdp_weights_dir
+
 
 
 def prepare_model(model_name_or_path: str, adapter_path: str | None = None):
@@ -46,6 +49,36 @@ def prepare_model(model_name_or_path: str, adapter_path: str | None = None):
         return model_name_or_path, False
 
 
+def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
+    model_dir = Path(model_path)
+    if not model_dir.is_dir() or (model_dir / "config.json").exists():
+        return model_path
+
+    try:
+        find_fsdp_weights_dir(model_dir)
+
+        if base_model is None:
+            lowered_name = model_dir.name.lower()
+            possible_models = {"ernie": "baidu/ERNIE-4.5-21B-A3B-PT"}
+            for hint, repo_id in possible_models.items():
+                if hint in lowered_name:
+                    base_model = repo_id
+                    break
+
+        if base_model is None:
+            return model_path
+
+        output_dir = model_dir.with_name(f"{model_dir.name}_vllm")
+        if not (output_dir / "config.json").exists():
+            export_checkpoint(model_dir, base_model, output_dir)
+        else:
+            print(f"Using existing exported FSDP checkpoint at {output_dir}")
+        return str(output_dir)
+    except Exception as exc:
+        print(f"Could not auto-export FSDP checkpoint, trying original path. Error: {exc}")
+        return model_path
+
+
 def invert_language_to_task() -> dict[str, list[str]]:
     task_to_languages: dict[str, list[str]] = {}
     for language, task_ids in LANGUAGE_TO_TASK.items():
@@ -62,7 +95,7 @@ def select_run_targets(language: str | None, task: str | None) -> tuple[list[str
 
     if language is not None and task is not None:
         if language not in LANGUAGE_TO_TASK:
-            raise ValueError(f"Unknown language `{language}`.")
+            raise ValueError(f"Unknown language `{language}`. Make sure to update language_to_task.py with new language. Also, check that the language isn't there but in a different code (e.g. Persian 'fa' vs. 'pes')")
         if task not in LANGUAGE_TO_TASK[language]:
             raise ValueError(f"Task `{task}` is not mapped for language `{language}`.")
         return [language], [task]
@@ -89,9 +122,11 @@ class VLLMWrapper:
         raise RuntimeError("SamplingParams class not available.")
 
 def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel_size: int = 1) -> VLLMWrapper:
-    
-    from vllm_phimoe_patch import apply_vllm_phimoe_patch
-    apply_vllm_phimoe_patch(model_path)
+    apply_phimoe_patch = os.environ.get("APPLY_VLLM_PHIMOE_PATCH", "1") != "0"
+    if apply_phimoe_patch:
+        print("Applying vLLM PhiMoE patch because APPLY_VLLM_PHIMOE_PATCH=1.")
+        from vllm_phimoe_patch import apply_vllm_phimoe_patch
+        apply_vllm_phimoe_patch(model_path)
 
     lm_eval_model_cls = get_model("vllm")
     
@@ -100,7 +135,15 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": True,
         "enable_thinking": True,
+        "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
     }
+
+    config_path = Path(model_path) / "config.json"
+    if not apply_phimoe_patch and config_path.exists():
+        with config_path.open() as f:
+            model_config = json.load(f)
+        if model_config.get("architectures") == ["PhimoeForCausalLM"]:
+            vllm_kwargs["hf_overrides"] = {"architectures": ["PhiMoEForCausalLM"]}
 
     if "qwen3.5" in model_path.lower():
         vllm_kwargs["gdn_prefill_backend"] = "triton"
@@ -175,6 +218,7 @@ def main():
     parser.add_argument("--language", type=str, default=None, help="Run all mapped tasks for a language")
     parser.add_argument("--task", type=str, default=None, help="Run a task across all mapped languages")
     parser.add_argument("--adapter_path", type=str, default=None)
+    parser.add_argument("--base_model", type=str, default=None, help="Original HF model ID for FSDP checkpoint export")
     parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument(
         "--cleanup_model_path",
@@ -188,6 +232,7 @@ def main():
     selected_languages, selected_tasks = select_run_targets(args.language, args.task)
 
     model_path, created_merge = prepare_model(args.model_name, args.adapter_path)
+    model_path = maybe_export_fsdp_checkpoint(model_path, args.base_model)
     cleanup_path = model_path if created_merge else args.cleanup_model_path
     try:
         evaluate_model(
