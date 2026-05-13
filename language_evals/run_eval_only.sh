@@ -104,6 +104,7 @@ done
 
 export CUDA_VISIBLE_DEVICES="$REQUESTED_GPUS"
 GPU_COUNT="$(count_gpus "$REQUESTED_GPUS")"
+MODEL_NAME="${MODEL_NAME%/}"
 
 # Construct run name based on provided arguments
 RUN_SUFFIX=""

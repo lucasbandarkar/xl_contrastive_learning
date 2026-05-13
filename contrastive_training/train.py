@@ -17,7 +17,7 @@ import huggingface_hub
 def create_training_args(
         model_nickname,
         output_dir=None,
-        learning_rate=1e-6,
+        learning_rate=1e-7,
         lr_scheduler='constant_with_warmup',
         partial_training=False,
         batch_size=None,
@@ -97,6 +97,8 @@ def create_output_directory_name(args, data_limit):
     training_details = ""
     if args.baseline:
         training_details += f"baseline-{args.baseline_mode}"
+        if args.baseline_mode == "frozen_lm":
+            training_details += f"_L{args.max_layer}"
     else:
         if args.earlyexit:
             training_details += "earlyexit"
@@ -126,7 +128,7 @@ def main(args):
     aws = is_aws_server()
     model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=aws)
 
-    data_limit = 1000 if args.test_run else 10000
+    data_limit = 1000 if args.test_run else 100000
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
 
     output_dir_name = create_output_directory_name(args, data_limit)
@@ -150,7 +152,7 @@ def main(args):
             min_layer=args.min_layer,
             max_layer=args.max_layer,
         )
-    elif args.baseline and args.baseline_mode == "target_lm":
+    elif args.baseline and args.baseline_mode in ["target_lm", "frozen_lm"]:
         training_args = create_training_args(
             args.nickname,
             output_dir=output_dir_name,
@@ -202,7 +204,9 @@ def main(args):
             max_layer=args.max_layer,
         )
 
-    if not args.baseline:
+    if args.baseline and args.baseline_mode == "frozen_lm":
+        trainer.configure_early_layer_only_training(args.max_layer, multi_gpu)
+    elif not args.baseline:
         """
         freezing modes:
         0: only train early layers {default}
@@ -246,7 +250,7 @@ if __name__ == "__main__":
     # parser.add_argument('-g', '--gpus', type=str, required=True, help="the comma-separated list of gpus to evaluate on")
     # parser.add_argument('-y', '--layernum', type=int, default=None, help="backward-compatible shortcut for setting both min_layer and max_layer to the same layer")
     parser.add_argument('-y', '--min_layer', type=int, default=None, help="the first layer at which to calculate contrastive loss")
-    parser.add_argument('-x', '--max_layer', type=int, default=14, help="the last layer at which to calculate contrastive loss")
+    parser.add_argument('-x', '--max_layer', type=int, default=14, help="the last layer to train for early-layer freezing, and the last layer at which to calculate contrastive loss")
     parser.add_argument('-e', '--earlyexit', action="store_true", help="whether to early exit and not calculate LM loss")
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
@@ -254,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',
-        choices=["translation_sft", "target_lm"],
+        choices=["translation_sft", "target_lm", "frozen_lm"],
         default="translation_sft",
         help="which baseline to run when --baseline is passed",
     )

@@ -11,6 +11,8 @@ LANGUAGE_NAMES = {
     "pes": "Persian",
     "bn": "Bengali",
     "ben": "Bengali",
+    "id": "Indonesian",
+    "ind": "Indonesian",
 }
 
 
@@ -100,6 +102,8 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
         OPUS_LANGUAGE_MAP = {
             "pes": "fa",
             "ben": "bn",
+            "ind": "id",
+            "id": "id",
         }
         tgt_lang = OPUS_LANGUAGE_MAP[language]
         split_name = f"en-{tgt_lang}" if tgt_lang > "en" else f"{tgt_lang}-en"
@@ -146,13 +150,21 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
         msvamp = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train")
 
 
-def format_translation_sft_dataset(dataset, tokenizer, src_language_key, tgt_language_key, max_length=512):
-    src_name = LANGUAGE_NAMES.get(src_language_key, src_language_key)
-    tgt_name = LANGUAGE_NAMES.get(tgt_language_key, tgt_language_key)
+def format_translation_sft_dataset(
+    dataset,
+    tokenizer,
+    src_language_key,
+    tgt_language_key,
+    max_length=512,
+):
+    direction_pairs = [
+        (src_language_key, tgt_language_key),
+        (tgt_language_key, src_language_key),
+    ]
 
-    def format_example(example):
-        src_text = example["translation"][src_language_key]
-        tgt_text = example["translation"][tgt_language_key]
+    def format_text_pair(src_text, tgt_text, src_key, tgt_key):
+        src_name = LANGUAGE_NAMES.get(src_key, src_key)
+        tgt_name = LANGUAGE_NAMES.get(tgt_key, tgt_key)
         prompt = (
             f"Translate the following text from {src_name} to {tgt_name}. "
             "Return only the translation.\n\n"
@@ -173,4 +185,24 @@ def format_translation_sft_dataset(dataset, tokenizer, src_language_key, tgt_lan
             "completion_mask": completion_mask,
         }
 
-    return dataset.map(format_example, remove_columns=dataset.column_names)
+    def format_batch(batch):
+        input_ids = []
+        completion_masks = []
+
+        for translation in batch["translation"]:
+            for src_key, tgt_key in direction_pairs:
+                formatted = format_text_pair(
+                    translation[src_key],
+                    translation[tgt_key],
+                    src_key,
+                    tgt_key,
+                )
+                input_ids.append(formatted["input_ids"])
+                completion_masks.append(formatted["completion_mask"])
+
+        return {
+            "input_ids": input_ids,
+            "completion_mask": completion_masks,
+        }
+
+    return dataset.map(format_batch, batched=True, remove_columns=dataset.column_names)
