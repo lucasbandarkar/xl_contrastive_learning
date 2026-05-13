@@ -135,11 +135,7 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": True,
         "enable_thinking": True,
-<<<<<<< HEAD
-        "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
-=======
         # "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
->>>>>>> 9ab1dc4 (updates to enable eval of ernie checkpoints on A100 servers)
     }
 
     config_path = Path(model_path) / "config.json"
