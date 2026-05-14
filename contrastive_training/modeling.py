@@ -24,6 +24,8 @@ NICKNAME_TO_MODEL_MAP = {
     "ling": "inclusionAI/Ling-mini-2.0",
     "phi-tiny": "microsoft/Phi-tiny-MoE-instruct",
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
+    "phi-mini" : "microsoft/Phi-mini-MoE-instruct",
+    "granite": "ibm-granite/granite-4.0-h-tiny",
 }
 
 def load_models(model_name, max_layer=None, fsdp=False, is_aws=False):

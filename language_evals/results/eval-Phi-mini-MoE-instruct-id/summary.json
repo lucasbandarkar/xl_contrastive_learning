@@ -1,0 +1,28 @@
+{
+    "belebele": {
+        "belebele_ind_Latn": 0.488
+    },
+    "mmlu_prox": {
+        "mmlu_prox_id": 0.052689352360043906
+    },
+    "global_mmlu_medical": {
+        "id": 0.417
+    },
+    "flores": {
+        "id": 5.292
+    },
+    "multiloko": {
+        "id": 0.069
+    },
+    "include": {
+        "include_base_44_indonesian": 0.378,
+        "include_base_44_indonesian_few_shot_og_applied_science": 0.4,
+        "include_base_44_indonesian_few_shot_og_arts_humanities": 0.408,
+        "include_base_44_indonesian_few_shot_og_professional_certification": 0.336,
+        "include_base_44_indonesian_few_shot_og_social_science": 0.392,
+        "include_base_44_indonesian_few_shot_og_stem": 0.32
+    },
+    "global_piqa": {
+        "global_piqa_completions_ind_latn": 0.46
+    }
+}

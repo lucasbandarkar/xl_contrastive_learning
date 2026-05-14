@@ -1,0 +1,25 @@
+{
+    "belebele": {
+        "belebele_pes_Arab": 0.619
+    },
+    "global_mmlu_medical": {
+        "fa": 0.471
+    },
+    "flores": {
+        "fa": 0.335
+    },
+    "multiloko": {
+        "fa": 0.052
+    },
+    "include": {
+        "include_base_44_persian": 0.411,
+        "include_base_44_persian_few_shot_og_arts_humanities": 0.319,
+        "include_base_44_persian_few_shot_og_driving_license": 0.576,
+        "include_base_44_persian_few_shot_og_professional_certification": 0.36,
+        "include_base_44_persian_few_shot_og_social_science": 0.404,
+        "include_base_44_persian_few_shot_og_stem": 0.375
+    },
+    "global_piqa": {
+        "global_piqa_completions_pes_arab": 0.63
+    }
+}
