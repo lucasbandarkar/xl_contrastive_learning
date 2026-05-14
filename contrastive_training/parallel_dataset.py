@@ -4,6 +4,8 @@ from datasets import load_dataset
 import torch
 from typing import List, Dict, Any
 
+MAX_LENGTH = 192 # for control
+TRANSLATION_SFT_MAX_LENGTH = 256 # longer because two texts needed in one sample
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -52,7 +54,7 @@ class ParallelDataCollator:
             src_sentences + tgt_sentences,
             padding=True,
             truncation=True,
-            max_length=512,
+            max_length=MAX_LENGTH,
             return_tensors="pt",
         )
         
@@ -75,7 +77,7 @@ class ParallelDataCollator:
 class TargetLanguageCausalLMCollator:
     """Build target-language-only batches for an LM-only CPT baseline."""
 
-    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=512):
+    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=MAX_LENGTH):
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
@@ -155,7 +157,7 @@ def format_translation_sft_dataset(
     tokenizer,
     src_language_key,
     tgt_language_key,
-    max_length=512,
+    max_length=TRANSLATION_SFT_MAX_LENGTH,
 ):
     direction_pairs = [
         (src_language_key, tgt_language_key),
@@ -189,16 +191,16 @@ def format_translation_sft_dataset(
         input_ids = []
         completion_masks = []
 
-        for translation in batch["translation"]:
-            for src_key, tgt_key in direction_pairs:
-                formatted = format_text_pair(
-                    translation[src_key],
-                    translation[tgt_key],
-                    src_key,
-                    tgt_key,
-                )
-                input_ids.append(formatted["input_ids"])
-                completion_masks.append(formatted["completion_mask"])
+        for i, translation in enumerate(batch["translation"]):
+            src_key, tgt_key = direction_pairs[i % 2]
+            formatted = format_text_pair(
+                translation[src_key],
+                translation[tgt_key],
+                src_key,
+                tgt_key,
+            )
+            input_ids.append(formatted["input_ids"])
+            completion_masks.append(formatted["completion_mask"])
 
         return {
             "input_ids": input_ids,

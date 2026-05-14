@@ -17,7 +17,7 @@ import huggingface_hub
 def create_training_args(
         model_nickname,
         output_dir=None,
-        learning_rate=1e-7,
+        learning_rate=1e-6,
         lr_scheduler='constant_with_warmup',
         partial_training=False,
         batch_size=None,
@@ -27,11 +27,24 @@ def create_training_args(
     ) -> TrainingArguments:
     model_config = get_model_config(model_nickname)
     training_mode = 'partial' if partial_training else 'full'
-    manual_batch_size = batch_size is not None
-    if not manual_batch_size:
-        batch_size = get_configured_batch_size(model_config, training_mode, num_gpus)
 
-    grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32)
+    if batch_size is None:
+        # uses auto_find_batch_size if config hasn't been set
+        # auto_find_batch_size is convenient but controlling step size is complicated
+        # also, FSDP was not liking auto_find_batch_size
+        use_auto_batch_size = model_config.get('auto_find_batch_size', True)
+        batch_size = get_configured_batch_size(model_config, training_mode, num_gpus, is_aws)
+    else:
+        use_auto_batch_size = False
+
+    if use_auto_batch_size:
+        grad_accum_steps = 1
+        save_steps = 1000
+        warmup_steps = 200
+    else:
+        grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32, num_gpus)
+        save_steps = 150 # about every 5000 samples
+    
     kwargs = {}
     if num_gpus > 1:
         kwargs['gradient_checkpointing'] = True
@@ -42,11 +55,11 @@ def create_training_args(
         output_dir=f"{location}/checkpoints/{output_dir}",
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
-        # gradient_accumulation_steps= grad_accum_steps,
-        auto_find_batch_size=False if manual_batch_size else model_config.get('auto_find_batch_size', True),
+        gradient_accumulation_steps= grad_accum_steps,
+        auto_find_batch_size=use_auto_batch_size,
         use_cache=False,
         # optim='adafactor',
-        optim='adamw_torch_fused',
+        optim='adamw_torch_fused', # more memory, but faster
         num_train_epochs=1,
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler,
@@ -56,12 +69,12 @@ def create_training_args(
         max_grad_norm=1.0, # ok if using FSDP1
         adam_beta2=0.99, # default value is 0.999
         save_strategy="no" if test_run else "steps",
-        save_steps=1000 if not test_run else None,
+        save_steps=save_steps if not test_run else None,
         bf16=False, # disable to maintain Pure BF16 (avoids FP32 master weight upcast bug)
         eval_strategy='steps',
         # eval_steps=1/25, # eval 20 times through training
         save_total_limit=1 if not test_run else None,
-        logging_steps=200,
+        logging_steps=warmup_steps, # about 1k samples
         remove_unused_columns=False, # essential for our ParallelDataCollator
         log_on_each_node=False,
         # report_to=report
@@ -74,21 +87,21 @@ def get_model_config(model_nickname):
         model_config = json.load(file)[model_nickname]
     return model_config
 
-def get_configured_batch_size(model_config, training_mode, num_gpus):
-    batch_size = model_config['batch_sizes'][training_mode]
-    gpu_overrides = model_config.get('batch_sizes_by_gpu', {}).get(training_mode, {})
-    return gpu_overrides.get(str(num_gpus), batch_size)
+def get_configured_batch_size(model_config, training_mode, num_gpus, is_aws):
+    # allows for dict for different GPU sizes
+    batch_dict_name ="batch_sizes_smaller_gpu" if is_aws else "batch_sizes_by_gpus"
+    gpu_overrides = model_config.get(batch_dict_name, {}).get(training_mode, {})
+    return gpu_overrides.get(str(num_gpus), 32) # default batch size to 32
 
-def calc_grad_accum_steps(device_batch_size, effective_batch_size):
+def calc_grad_accum_steps(device_batch_size, effective_batch_size, world_size=1):
     """
     In order to maintain sufficiently large effective batch size, calculates number of gradient accumulation steps with current training conditions.
     """
-    world_size = 1
     grad_accum_steps=1
     while grad_accum_steps * world_size * device_batch_size < effective_batch_size:
         grad_accum_steps *= 2
         
-    num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 24k samples, regardless of what batch size is
+    num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 1k samples, regardless of what batch size is
     return grad_accum_steps, num_warmup_steps
 
 def create_output_directory_name(args, data_limit):
@@ -128,7 +141,7 @@ def main(args):
     aws = is_aws_server()
     model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=aws)
 
-    data_limit = 1000 if args.test_run else 100000
+    data_limit = 1000 if args.test_run else int(10e3)
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
 
     output_dir_name = create_output_directory_name(args, data_limit)
@@ -178,6 +191,7 @@ def main(args):
             num_gpus=num_gpus,
             is_aws=aws,
         )
+        training_args.group_by_length = True # only possible for translation sft
         trainer = TranslationSFTTrainer(
             model,
             args=training_args,

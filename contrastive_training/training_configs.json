@@ -1,38 +1,22 @@
 {
-    "qwen3_30b": {
-        "batch_sizes": {
-            "partial": 128,
-            "full": 8
-        }
-    },
-    "mixtral": {
-        "batch_sizes": {
-            "partial": 128,
-            "full": 16
-        }
-    },
-    "olmoe": {
-        "batch_sizes": {
-            "partial": 128,
-            "full": 16
-        }
-    },
+    "qwen35_35b": {},
     "phi-tiny": {
-        "batch_sizes": {
-            "partial": 128,
-            "full": 16
+        "auto_find_batch_size": true
+    },
+    "granite": {
+        "auto_find_batch_size": false,
+        "batch_sizes_by_gpus": {
+            "full": {
+                "1": 2
+            }
         }
     },
     "ernie": {
         "auto_find_batch_size": false,
-        "batch_sizes": {
-            "partial": 32,
-            "full": 64
-        },
-        "batch_sizes_by_gpu": {
+        "batch_sizes_by_gpus": {
             "full": {
-                "2": 1,
-                "3": 8,
+                "2": 2,
+                "3": 16,
                 "4": 32
             }
         }
