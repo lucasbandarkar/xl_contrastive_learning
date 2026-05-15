@@ -7,3 +7,5 @@ numpy
 regex
 seaborn
 tqdm
+ninja==1.13.0
+wheel

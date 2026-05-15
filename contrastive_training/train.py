@@ -17,7 +17,7 @@ import huggingface_hub
 def create_training_args(
         model_nickname,
         output_dir=None,
-        learning_rate=1e-6,
+        learning_rate=4e-6,
         lr_scheduler='constant_with_warmup',
         partial_training=False,
         batch_size=None,
@@ -103,6 +103,19 @@ def calc_grad_accum_steps(device_batch_size, effective_batch_size, world_size=1)
         
     num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 1k samples, regardless of what batch size is
     return grad_accum_steps, num_warmup_steps
+
+def configure_resume_training(training_args, resume_from_checkpoint):
+    trainer_state_path = Path(resume_from_checkpoint) / "trainer_state.json"
+    with open(trainer_state_path, "r") as file:
+        trainer_state = json.load(file)
+
+    checkpoint_epoch = trainer_state.get("epoch", 1.0)
+    training_args.num_train_epochs = float(checkpoint_epoch + 1)
+    training_args.output_dir = str(Path(resume_from_checkpoint).parent)
+    print(
+        f"Resuming from {resume_from_checkpoint} at epoch {checkpoint_epoch:.3f}; "
+        f"training until epoch {training_args.num_train_epochs:.3f}."
+    )
 
 def create_output_directory_name(args, data_limit):
     prefix = f"{args.nickname}_{args.language}"
@@ -232,7 +245,13 @@ def main(args):
         elif args.freezing_mode == 0:
             trainer.configure_early_layer_only_training(args.max_layer, multi_gpu)
     
-    trainer.train()
+    if args.resume_training:
+        configure_resume_training(
+            trainer.args,
+            args.resume_training,
+        )
+
+    trainer.train(resume_from_checkpoint=args.resume_training)
 
     output_dir = trainer.args.output_dir
     trainer.save_model(output_dir)
@@ -269,6 +288,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
+    parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',

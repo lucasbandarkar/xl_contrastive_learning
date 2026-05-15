@@ -7,7 +7,7 @@
         "auto_find_batch_size": false,
         "batch_sizes_by_gpus": {
             "full": {
-                "1": 2
+                "1": 16
             }
         }
     },

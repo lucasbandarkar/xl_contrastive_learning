@@ -15,6 +15,7 @@ conda create -n xlcl python=3.14
 conda activate xlcl
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 pip install -r xlcl_requirements.txt
+pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
 ```
 
 And then: `CUDA_VISIBLE_DEVICES="7" accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t`
