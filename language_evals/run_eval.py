@@ -93,17 +93,23 @@ def select_run_targets(language: str | None, task: str | None) -> tuple[list[str
     if language is None and task is None:
         raise ValueError("At least one of `--language` or `--task` must be provided.")
 
-    if language is not None and task is not None:
-        if language not in LANGUAGE_TO_TASK:
-            raise ValueError(f"Unknown language `{language}`. Make sure to update language_to_task.py with new language. Also, check that the language isn't there but in a different code (e.g. Persian 'fa' vs. 'pes')")
-        if task not in LANGUAGE_TO_TASK[language]:
-            raise ValueError(f"Task `{task}` is not mapped for language `{language}`.")
-        return [language], [task]
+    languages = [lang.strip() for lang in language.split(",")] if language else []
 
-    if language is not None:
-        if language not in LANGUAGE_TO_TASK:
-            raise ValueError(f"Unknown language `{language}`.")
-        return [language], LANGUAGE_TO_TASK[language]
+    if languages and task is not None:
+        for lang in languages:
+            if lang not in LANGUAGE_TO_TASK:
+                raise ValueError(f"Unknown language `{lang}`.")
+            if task not in LANGUAGE_TO_TASK[lang]:
+                raise ValueError(f"Task `{task}` is not mapped for language `{lang}`.")
+        return languages, [task]
+
+    if languages:
+        all_tasks = set()
+        for lang in languages:
+            if lang not in LANGUAGE_TO_TASK:
+                raise ValueError(f"Unknown language `{lang}`.")
+            all_tasks.update(LANGUAGE_TO_TASK[lang])
+        return languages, sorted(list(all_tasks))
 
     if task not in task_to_languages:
         raise ValueError(f"Unknown task `{task}`.")
@@ -162,14 +168,12 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
 
 def evaluate_model(
     model_path: str,
-    language: str | None,
-    task: str | None,
+    selected_languages: list[str],
+    selected_tasks: list[str],
     run_name: str,
     cleanup_model_path: str | None,
     tensor_parallel_size: int = 1,
 ):
-    selected_languages, selected_tasks = select_run_targets(language, task)
-
     vllm_wrapper = build_vllm_wrapper(
         model_path,
         needs_direct_vllm="multiloko" in selected_tasks,
@@ -216,7 +220,12 @@ def evaluate_model(
 def main():
     parser = ArgumentParser()
     parser.add_argument("--model_name", type=str, required=True, help="Base model name or path")
-    parser.add_argument("--language", type=str, default=None, help="Run all mapped tasks for a language")
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        help="Run all mapped tasks for a language. Can be a comma-separated list of languages.",
+    )
     parser.add_argument("--task", type=str, default=None, help="Run a task across all mapped languages")
     parser.add_argument("--adapter_path", type=str, default=None)
     parser.add_argument("--base_model", type=str, default=None, help="Original HF model ID for FSDP checkpoint export")
@@ -238,8 +247,8 @@ def main():
     try:
         evaluate_model(
             model_path=model_path,
-            language=args.language,
-            task=args.task,
+            selected_languages=selected_languages,
+            selected_tasks=selected_tasks,
             run_name=args.run_name,
             cleanup_model_path=cleanup_path,
             tensor_parallel_size=args.tensor_parallel_size,
