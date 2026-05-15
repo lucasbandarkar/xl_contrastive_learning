@@ -3,9 +3,43 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import transformers
 # from .modeling.modeling_kimi import KimiLinearForCausalLM
 
+
+def patch_granite_router_logits_class():
+    try:
+        from transformers.models.granitemoehybrid.modeling_granitemoehybrid import GraniteMoeHybridMoE
+    except ImportError:
+        return
+
+    if getattr(GraniteMoeHybridMoE, "_routing_analysis_router_patch", False):
+        return
+
+    def forward_with_router_logits(self, layer_input):
+        bsz, length, emb_size = layer_input.size()
+        layer_input = layer_input.reshape(-1, emb_size)
+        _, batch_index, batch_gates, expert_size, router_logits = self.router(layer_input)
+        self.router_logits = router_logits
+
+        expert_inputs = layer_input[batch_index]
+        hidden_states = self.input_linear(expert_inputs, expert_size)
+        chunked_hidden_states = hidden_states.chunk(2, dim=-1)
+        hidden_states = self.activation(chunked_hidden_states[0]) * chunked_hidden_states[1]
+        expert_outputs = self.output_linear(hidden_states, expert_size)
+        expert_outputs = expert_outputs * batch_gates[:, None]
+
+        zeros = torch.zeros((bsz * length, self.input_size), dtype=expert_outputs.dtype, device=expert_outputs.device)
+        layer_output = zeros.index_add(0, batch_index, expert_outputs)
+        return layer_output.view(bsz, length, self.input_size)
+
+    GraniteMoeHybridMoE.forward = forward_with_router_logits
+    GraniteMoeHybridMoE._routing_analysis_router_patch = True
+
+
 class MoeModel:
     def __init__(self, model_name: str):
         self.model_name = model_name
+        if "granite-4.0-h" in model_name.lower():
+            patch_granite_router_logits_class()
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if ("llada" in model_name.lower()) or ("Kimi" in model_name):
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
@@ -53,8 +87,14 @@ class MoeModel:
 
         with torch.no_grad():
             # generation = model.generate(input_ids, max_new_tokens=5, do_sample=False)
-            outputs = model(input_ids, output_router_logits=True, return_dict=True)
-            router_logits = torch.stack([rl for rl in outputs["router_logits"]], dim=0)  # torch.Size([32, 70, 8])
+            if model.config.model_type == "granitemoehybrid":
+                outputs = model(input_ids, return_dict=True)
+                raw_router_logits = tuple(layer.block_sparse_moe.router_logits for layer in model.model.layers)
+            else:
+                outputs = model(input_ids, output_router_logits=True, return_dict=True)
+                raw_router_logits = outputs["router_logits"]
+
+            router_logits = torch.stack([rl for rl in raw_router_logits], dim=0)  # torch.Size([32, 70, 8])
             return_dict = {
                 "router_logits": router_logits.float().detach().cpu().numpy(),  # torch.Size([32, 70, 8]) ~ (layer, token, expert)
                 # "router_choices": torch.argmax(router_logits, dim=-1).float().detach().cpu().numpy(),  # torch.Size([32, 70]) ~ (layer, token)

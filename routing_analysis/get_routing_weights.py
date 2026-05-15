@@ -35,6 +35,7 @@ NICKNAME_TO_MODEL_MAP = {
     "ling": "inclusionAI/Ling-mini-2.0",
     "phi-tiny": "microsoft/Phi-tiny-MoE-instruct",
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
+    "granite": "ibm-granite/granite-4.0-h-tiny",
 }
 MODEL_CONFIGS = {
     "qwen3_30b": [48, 128, 8, {}], # [num_layers, num_experts, num_experts_active_per_tok, special_gating_function_params]
@@ -51,6 +52,7 @@ MODEL_CONFIGS = {
     "ling": [20, 256, 8, {"scoring_func": "sigmoid"}],
     "phi-tiny": [32, 16, 2],
     "ernie": [28, 64, 6, {}], # has one dense layer
+    "granite": [40, 64, 6, {}],
 }
 DATA_FOLDER = "/data2/lucasbandarkar/moe/collected_routing_data/"
 

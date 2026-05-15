@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import sys
+import subprocess
 
 import gc
 import json
@@ -17,7 +18,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from language_to_task import LANGUAGE_TO_TASK
 from task_evaluators import TASK_EVALUATOR_REGISTRY
-from export_fsdp_checkpoint import export_checkpoint, find_fsdp_weights_dir
+from export_fsdp_checkpoint import find_fsdp_weights_dir
 
 
 
@@ -70,7 +71,18 @@ def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None)
 
         output_dir = model_dir.with_name(f"{model_dir.name}_vllm")
         if not (output_dir / "config.json").exists():
-            export_checkpoint(model_dir, base_model, output_dir)
+            export_script = Path(__file__).resolve().with_name("export_fsdp_checkpoint.py")
+            # Keep the heavy FSDP merge in a separate process so vLLM starts
+            # from a clean Python process after the large tensor rewrite.
+            subprocess.run(
+                [
+                    sys.executable, str(export_script),
+                    "--checkpoint-dir", str(model_dir),
+                    "--base-model", base_model,
+                    "--output-dir", str(output_dir),
+                ],
+                check=True,
+            )
         else:
             print(f"Using existing exported FSDP checkpoint at {output_dir}")
         return str(output_dir)

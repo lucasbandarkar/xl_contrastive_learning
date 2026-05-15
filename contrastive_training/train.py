@@ -117,9 +117,9 @@ def configure_resume_training(training_args, resume_from_checkpoint):
         f"training until epoch {training_args.num_train_epochs:.3f}."
     )
 
-def create_output_directory_name(args, data_limit):
+def create_output_directory_name(args, size_suffix):
     prefix = f"{args.nickname}_{args.language}"
-    suffix = f"{data_limit//1000}k"
+    
     training_details = ""
     if args.baseline:
         training_details += f"baseline-{args.baseline_mode}"
@@ -137,7 +137,7 @@ def create_output_directory_name(args, data_limit):
         if args.freezing_mode == 1: 
             training_details += "_routers"
 
-    return f"{prefix}_{training_details}_{suffix}"
+    return f"{prefix}_{training_details}_{size_suffix}"
 
 def is_aws_server():
     """Detect if we're running on an AWS server by checking if the /data2/ directory is missing."""
@@ -154,10 +154,11 @@ def main(args):
     aws = is_aws_server()
     model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=aws)
 
-    data_limit = 1000 if args.test_run else int(10e3)
+    data_limit = 1000 if args.test_run else args.samples * 1000
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
 
-    output_dir_name = create_output_directory_name(args, data_limit)
+    ckpt_suffix = "test" if args.test_run else f"{args.samples}k"
+    output_dir_name = create_output_directory_name(args, ckpt_suffix)
 
     if args.earlyexit:
         training_args = create_training_args(
@@ -288,6 +289,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
+    parser.add_argument('-s', "--samples", type=int, default=10, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(

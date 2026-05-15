@@ -6,9 +6,10 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 import re
+from types import MethodType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-POSSIBLE_ROUTER_NAMES = ['mlp.router', 'block_sparse_moe.gate', 'mlp.gate']
+POSSIBLE_ROUTER_NAMES = ['mlp.router', 'block_sparse_moe.gate', 'block_sparse_moe.router', 'mlp.gate']
 
 
 class FreezableTrainerMixin:
@@ -116,6 +117,36 @@ def standardize_router_logits(
             )
 
         return torch.stack(router_layers, dim=0)
+
+
+def patch_granite_router_logits(model):
+    if getattr(model, "_contrastive_granite_router_patch", False):
+        return
+
+    for layer in model.model.layers:
+        moe = layer.block_sparse_moe
+        original_forward = moe.forward
+
+        def forward_with_router_logits(self, layer_input):
+            bsz, length, emb_size = layer_input.size()
+            layer_input = layer_input.reshape(-1, emb_size)
+            _, batch_index, batch_gates, expert_size, router_logits = self.router(layer_input)
+            self.router_logits = router_logits
+
+            expert_inputs = layer_input[batch_index]
+            hidden_states = self.input_linear(expert_inputs, expert_size)
+            hidden_states = self.activation(hidden_states[..., : self.hidden_size]) * hidden_states[..., self.hidden_size :]
+            expert_outputs = self.output_linear(hidden_states, expert_size)
+            expert_outputs = expert_outputs * batch_gates[:, None]
+
+            zeros = torch.zeros((bsz * length, self.input_size), dtype=expert_outputs.dtype, device=expert_outputs.device)
+            layer_output = zeros.index_add(0, batch_index, expert_outputs)
+            return layer_output.view(bsz, length, self.input_size)
+
+        moe._contrastive_original_forward = original_forward
+        moe.forward = MethodType(forward_with_router_logits, moe)
+
+    model._contrastive_granite_router_patch = True
 
 
 def contrastive_loss_fn(
@@ -238,19 +269,30 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         self.alpha_contrastive = alpha_contrastive
         self.scoring_func = scoring_func
         self.lm_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100) # Standard LM loss
+
+        if self.model.config.model_type == "granitemoehybrid":
+            patch_granite_router_logits(self.model)
     
     def get_routing_logits(self, model, input_ids, attention_mask):
         ## need to implement for model's without output_router_logits option
         ## https://github.com/hiyouga/LlamaFactory/blob/main/src/llamafactory/model/model_utils/moe.py
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            output_router_logits=True,
-        ) ## NOTE: since doing LM loss, need to do full forward pass
+        if model.config.model_type == "granitemoehybrid":
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            ) ## NOTE: since doing LM loss, need to do full forward pass
+            raw_router_logits = tuple(layer.block_sparse_moe.router_logits for layer in model.model.layers)
+        else:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_router_logits=True,
+            ) ## NOTE: since doing LM loss, need to do full forward pass
+            raw_router_logits = outputs.router_logits
 
         B, L = input_ids.shape
         router_logits = standardize_router_logits(
-            outputs.router_logits,
+            raw_router_logits,
             batch_size=B,
             seq_len=L,
             attention_mask=attention_mask,
