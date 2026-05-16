@@ -2,10 +2,12 @@
 # that file contains custom code for gpt-oss and customized vLLM objects
 from __future__ import annotations
 import re, json
+import unicodedata as ud
 from lm_eval import tasks, evaluator
 from typing import Any
 import string
 import tempfile
+from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 import numpy as np
@@ -25,6 +27,17 @@ MGSM_LANGUAGES = ["bn", "de", "en", "es", "fr", "ru", "sw", "te", "th", "ja", "z
 GLOBAL_MGSM_BASE_YAML = "task_utils/global_mgsm.yaml"
 FLORES_BASE_YAML = "task_utils/flores.yaml"
 GMMLU_MEDICAL_SAMPLES_PATH = "task_utils/gmmlu_medical_samples_dict.json"
+
+FLORES_TARGET_LANGUAGE_NAMES = {
+    "fa": "Persian, written in Arabic script",
+    "si": "Sinhala, written in Sinhala script",
+    "bn": "Bengali, written in Bengali script",
+    "fr": "French",
+    "ar": "Arabic, written in Arabic script",
+    "hi": "Hindi, written in Devanagari script",
+    "id": "Indonesian",
+    "th": "Thai, written in Thai script",
+}
 
 
 class Evaluator:
@@ -291,6 +304,7 @@ class FLoResEngXEvaluator(Evaluator):
             
             for lang in eval_langcodes:
                 tgt_lang = FLORES_LANGCODE_MAP[lang]
+                target_language_name = FLORES_TARGET_LANGUAGE_NAMES.get(lang, tgt_lang)
                 task_name = f"flores_eng_Latn_{tgt_lang}"
                 task_names.append(task_name)
                 
@@ -299,7 +313,15 @@ class FLoResEngXEvaluator(Evaluator):
                     f'include: "{FLORES_BASE_YAML}"\n'
                     f"task: {task_name}\n"
                     f"dataset_name: eng_Latn-{tgt_lang}\n"
-                    f"doc_to_text: '{{{{sentence_eng_Latn}}}} = '\n"
+                    "doc_to_text: |\n"
+                    "  You are translating a single sentence for a multilingual evaluation set.\n"
+                    f"  Target language: {target_language_name}\n"
+                    f"  Target FLORES code: {tgt_lang}\n"
+                    "  Write only the translated sentence in the target language. Do not explain or copy the English.\n"
+                    "  <english_source>\n"
+                    "  {{sentence_eng_Latn}}\n"
+                    "  </english_source>\n"
+                    "  <target_sentence>\n"
                     f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
                     f"dataset_kwargs:\n  trust_remote_code: True\n"
                 )
@@ -332,6 +354,11 @@ class MultiLoKoEvaluator(Evaluator):
     def __init__(self, vllm_object, chat_format: bool = False, shots: int = 0):
         super().__init__(vllm_object, chat_format, shots)
         self.normalization_regex = re.compile(r"\b(a|an|the)\b")
+        self.extra_punctuation = (
+            "„“«»¡¿《》！？｡。＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀"
+            "｛｜｝～｟｠｢｣､、〃》「」『』【】〔〕〖〗〘〙〚〛〜〝〞〟〰〾〿"
+            "–—‘’‛“”„‟…‧﹏."
+        )
 
 
     def lm_eval_evaluate(
@@ -346,12 +373,10 @@ class MultiLoKoEvaluator(Evaluator):
         debug_payload = {}
         for lang in langcodes:
             language_name = CODE_TO_MULTILOKO_NAME[lang]
-            dataset = load_dataset("facebook/multiloko", language_name)
-            all_dev_examples = dataset["dev"]
+            all_dev_examples = self.load_dev_examples(language_name)
 
-            prepared_examples = [self.prepare_example(example) for example in all_dev_examples]
-            fewshot_examples = prepared_examples[:2]
-            eval_examples = prepared_examples[2:]
+            eval_examples = [self.prepare_example(example) for example in all_dev_examples]
+            fewshot_examples = eval_examples[:1]
             
             prompts = [
                 self.build_prompt(language_name, fewshot_examples, example)
@@ -375,6 +400,22 @@ class MultiLoKoEvaluator(Evaluator):
 
         self.write_results(output_file, debug_payload if debugging else primary_scores)
         return debug_payload if debugging else primary_scores
+
+    def load_dev_examples(self, language_name: str):
+        try:
+            dataset = load_dataset("facebook/multiloko", language_name)
+            return dataset["dev"]
+        except ValueError as exc:
+            if language_name != "bengali" or "Feature type 'List' not found" not in str(exc):
+                raise
+
+            default_dev = load_dataset("facebook/multiloko", "default", split="dev")
+            return default_dev.filter(
+                lambda example: (
+                    example["question_language"] == "bengali"
+                    and example["source_language"] == "bengali"
+                )
+            )
 
     def build_prompt(
         self, language_name: str, fewshot_examples: list[dict[str, Any]], example: dict[str, Any]
@@ -412,8 +453,7 @@ class MultiLoKoEvaluator(Evaluator):
     def generate_answers(self, prompts: list[str]) -> list[str]:
         sampling_params = self.vllm_wrapper.build_sampling_params(
             temperature=0.0,
-            max_tokens=48,
-            stop=["\n", "</think>"],
+            max_tokens=128,
         )
         outputs = self.vllm_wrapper.direct_vllm_model.generate(
             prompts,
@@ -422,10 +462,20 @@ class MultiLoKoEvaluator(Evaluator):
         )
         generations = []
         for output in outputs:
-            text = output.outputs[0].text.strip()
-            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-            generations.append(text)
+            generations.append(self.extract_short_answer(output.outputs[0].text))
         return generations
+
+    def extract_short_answer(self, text: str) -> str:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        if "</think>" in text:
+            text = text.split("</think>", 1)[-1].strip()
+        if "<think>" in text:
+            text = text.split("<think>", 1)[0].strip()
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return text.strip()
 
     def score_generations(
         self, generations: list[str], eval_examples: list[dict[str, Any]]
@@ -463,10 +513,10 @@ class MultiLoKoEvaluator(Evaluator):
             return max(self.f1_score(single_gold, pred) for single_gold in gold)
         gold_tokens = self.normalize_answer(gold).split()
         pred_tokens = self.normalize_answer(pred).split()
-        common = set(gold_tokens) & set(pred_tokens)
-        num_same = sum(min(gold_tokens.count(tok), pred_tokens.count(tok)) for tok in common)
         if not gold_tokens or not pred_tokens:
             return float(gold_tokens == pred_tokens)
+        common = Counter(gold_tokens) & Counter(pred_tokens)
+        num_same = sum(common.values())
         if num_same == 0:
             return 0.0
         precision = num_same / len(pred_tokens)
@@ -485,9 +535,24 @@ class MultiLoKoEvaluator(Evaluator):
     def normalize_answer(self, answer: str) -> str:
         answer = answer.replace("\n", " ").replace("\t", " ")
         answer = answer.lower()
+        answer = self.remove_punctuation(answer)
         answer = self.normalization_regex.sub(" ", answer)
-        answer = answer.translate(str.maketrans("", "", string.punctuation))
-        return " ".join(answer.split())
+        answer = " ".join(answer.split())
+        if " answer is " in answer:
+            answer = answer.split(" answer is ")[-1]
+        elif answer.startswith("answer is "):
+            answer = answer.removeprefix("answer is ")
+        elif answer.endswith("です"):
+            answer = answer[:-2]
+        return answer
+
+    def remove_punctuation(self, answer: str) -> str:
+        punctuation = set(string.punctuation + self.extra_punctuation)
+        return "".join(
+            char
+            for char in answer
+            if char not in punctuation and not ud.category(char).startswith("P")
+        )
 
 
 TASK_EVALUATOR_REGISTRY = {

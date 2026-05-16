@@ -11,9 +11,6 @@
     "global_mmlu_medical": {
         "ar": 0.26
     },
-    "flores": {
-        "ar": 0.163
-    },
     "multiloko": {
         "ar": 0.0
     },

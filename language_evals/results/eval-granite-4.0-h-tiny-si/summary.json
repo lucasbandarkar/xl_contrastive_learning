@@ -8,10 +8,10 @@
     "global_mmlu_medical": {
         "si": 0.429
     },
-    "flores": {
-        "si": 0.258
-    },
     "global_piqa": {
         "global_piqa_completions_sin_sinh": 0.48
+    },
+    "flores": {
+        "si": 14.605
     }
 }

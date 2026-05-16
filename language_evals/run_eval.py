@@ -153,7 +153,7 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": True,
         "enable_thinking": True,
-        "max_model_len": 8192,  # this should be way more than enough
+        "max_model_len": 4096,  # this should be way more than enough
         # "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
     }
 

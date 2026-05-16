@@ -3,7 +3,7 @@
         "belebele_pes_Arab": 0.757
     },
     "flores": {
-        "fa": 0.487
+        "fa": 43.664
     },
     "global_mmlu_medical": {
         "fa": 0.557
@@ -20,6 +20,6 @@
         "include_base_44_persian_few_shot_og_stem": 0.188
     },
     "multiloko": {
-        "fa": 0.133
+        "fa": 0.136
     }
 }

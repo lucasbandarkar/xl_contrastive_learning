@@ -71,10 +71,10 @@ MULTILOKO_PROMPT_BUILDERS = {
         "जितना संभव हो सके संक्षिप्त में प्रश्नों के उत्तर दें।\n"
         + "".join(
             f"प्र: {example['question']} केवल एक {example['output_type']} दें\n"
-            f"উ: {example['prompt_answer']}\n"
+            f"जवाब: {example['prompt_answer']}\n"
             for example in examples
         )
-        + f"प्र: {question} केवल एक {output_type} दें\nউ:"
+        + f"प्र: {question} केवल एक {output_type} दें\nजवाब:"
     ),
     "thai": lambda examples, question, output_type: (
         "ตอบคำถามต่อไปนี้ให้กระชับที่สุดเท่าที่จะเป็นไปได้\n"

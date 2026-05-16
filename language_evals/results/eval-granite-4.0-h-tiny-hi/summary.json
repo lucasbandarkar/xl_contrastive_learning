@@ -8,11 +8,8 @@
     "global_mmlu_medical": {
         "hi": 0.474
     },
-    "flores": {
-        "hi": 0.224
-    },
     "multiloko": {
-        "hi": 0.109
+        "hi": 0.064
     },
     "include": {
         "include_base_44_hindi": 0.506,
@@ -27,5 +24,8 @@
     },
     "global_piqa": {
         "global_piqa_completions_hin_deva": 0.65
+    },
+    "flores": {
+        "hi": 35.723
     }
 }

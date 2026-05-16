@@ -5,9 +5,6 @@
     "global_mmlu_medical": {
         "fa": 0.481
     },
-    "flores": {
-        "fa": 0.389
-    },
     "multiloko": {
         "fa": 0.069
     },
