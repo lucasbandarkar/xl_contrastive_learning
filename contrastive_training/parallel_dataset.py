@@ -20,10 +20,11 @@ LANGUAGE_NAMES = {
 
 class ParallelDataCollator:
     # does it make sense to inherit from DPODataCollatorWithPadding ??
-    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key):
+    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=None):
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
+        self.max_length = max_length or MAX_LENGTH
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         """
@@ -54,7 +55,7 @@ class ParallelDataCollator:
             src_sentences + tgt_sentences,
             padding=True,
             truncation=True,
-            max_length=MAX_LENGTH,
+            max_length=self.max_length,
             return_tensors="pt",
         )
         
@@ -99,7 +100,7 @@ class TargetLanguageCausalLMCollator:
         return batch
 
 
-def load_parallel_datasets(dataset: str, language: str, data_limit=None):
+def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable_cache=False):
     if dataset.lower() == "opus":
         OPUS_LANGUAGE_MAP = {
             "pes": "fa",
@@ -109,7 +110,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
         }
         tgt_lang = OPUS_LANGUAGE_MAP[language]
         split_name = f"en-{tgt_lang}" if tgt_lang > "en" else f"{tgt_lang}-en"
-        dataset = load_dataset("Helsinki-NLP/opus-100", split_name)
+        dataset = load_dataset("Helsinki-NLP/opus-100", split_name, keep_in_memory=disable_cache)
 
         if data_limit:
             train_limit = min(data_limit, len(dataset['train']))
@@ -126,7 +127,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
 
         from expert_steering.mgsm_utils import MGSMINSTRUCT_LANGUAGES
 
-        mgsminstruct = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train")
+        mgsminstruct = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train", keep_in_memory=disable_cache)
 
         def detect_language(entry):
             extracted_language = entry['prompt'].split()[17][:-1]
@@ -149,7 +150,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None):
 
 
         # TODO: finish the processing of MGSMInstruct and also of "Mathoctopus/MSVAMP"
-        msvamp = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train")
+        msvamp = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train", keep_in_memory=disable_cache)
 
 
 def format_translation_sft_dataset(
@@ -158,6 +159,7 @@ def format_translation_sft_dataset(
     src_language_key,
     tgt_language_key,
     max_length=TRANSLATION_SFT_MAX_LENGTH,
+    disable_cache=False,
 ):
     direction_pairs = [
         (src_language_key, tgt_language_key),
@@ -207,4 +209,10 @@ def format_translation_sft_dataset(
             "completion_mask": completion_masks,
         }
 
-    return dataset.map(format_batch, batched=True, remove_columns=dataset.column_names)
+    return dataset.map(
+        format_batch,
+        batched=True,
+        remove_columns=dataset.column_names,
+        load_from_cache_file=not disable_cache,
+        keep_in_memory=disable_cache,
+    )

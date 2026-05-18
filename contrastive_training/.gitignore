@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+.ruff_cache/
+.pytest_cache/
+logs/
+checkpoints/
+wandb/
+*.log
+wheelhouse/*
+local_kernels/*

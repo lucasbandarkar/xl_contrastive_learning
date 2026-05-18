@@ -14,6 +14,7 @@ import shutil
 from pathlib import Path
 import huggingface_hub
 
+
 def create_training_args(
         model_nickname,
         output_dir=None,
@@ -24,6 +25,9 @@ def create_training_args(
         test_run=False,
         num_gpus=1,
         is_aws=False,
+        freezing_mode=0,
+        use_model_cache=False,
+        save_checkpoints=True,
     ) -> TrainingArguments:
     model_config = get_model_config(model_nickname)
     training_mode = 'partial' if partial_training else 'full'
@@ -46,7 +50,7 @@ def create_training_args(
         save_steps = 150 # about every 5000 samples
     
     kwargs = {}
-    if num_gpus > 1:
+    if num_gpus > 1 or model_config.get("gradient_checkpointing", False):
         kwargs['gradient_checkpointing'] = True
 
     location = "." if is_aws else "/data2/lucasbandarkar"
@@ -57,23 +61,23 @@ def create_training_args(
         per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps= grad_accum_steps,
         auto_find_batch_size=use_auto_batch_size,
-        use_cache=False,
+        use_cache=use_model_cache,
         # optim='adafactor',
         optim='adamw_torch_fused', # more memory, but faster
         num_train_epochs=1,
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler,
         warmup_steps=warmup_steps,
-        neftune_noise_alpha=5.0,
+        neftune_noise_alpha=None if partial_training or freezing_mode == 1 else 5.0,
         # max_grad_norm=0.0, # FSDP2 requires disabling to 0.0 to prevent "RuntimeError: No backend type associated with device type cpu"
         max_grad_norm=1.0, # ok if using FSDP1
         adam_beta2=0.99, # default value is 0.999
-        save_strategy="no" if test_run else "steps",
-        save_steps=save_steps if not test_run else None,
+        save_strategy="steps" if save_checkpoints and not test_run else "no",
+        save_steps=save_steps if save_checkpoints and not test_run else None,
         bf16=False, # disable to maintain Pure BF16 (avoids FP32 master weight upcast bug)
         eval_strategy='steps',
         # eval_steps=1/25, # eval 20 times through training
-        save_total_limit=1 if not test_run else None,
+        save_total_limit=1 if save_checkpoints and not test_run else None,
         logging_steps=warmup_steps, # about 1k samples
         remove_unused_columns=False, # essential for our ParallelDataCollator
         log_on_each_node=False,
@@ -152,10 +156,26 @@ def main(args):
     # Partial model loading only needs the upper bound of the requested range.
     max_layer = int(args.max_layer) if args.earlyexit else None
     aws = is_aws_server()
-    model, tokenizer = load_models(args.nickname, max_layer=max_layer, fsdp=multi_gpu, is_aws=aws)
+    model_config = get_model_config(args.nickname)
+    freezing_mode = args.freezing_mode
+    if freezing_mode is None:
+        freezing_mode = model_config.get("freezing_mode", 0)
+
+    model, tokenizer = load_models(
+        args.nickname,
+        max_layer=max_layer,
+        fsdp=multi_gpu,
+        is_aws=aws,
+        use_model_cache=not args.disable_cache,
+    )
 
     data_limit = 1000 if args.test_run else args.samples * 1000
-    dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets("opus", args.language, data_limit=data_limit)
+    dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets(
+        "opus",
+        args.language,
+        data_limit=data_limit,
+        disable_cache=args.disable_cache,
+    )
 
     ckpt_suffix = "test" if args.test_run else f"{args.samples}k"
     output_dir_name = create_output_directory_name(args, ckpt_suffix)
@@ -169,13 +189,16 @@ def main(args):
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
+            freezing_mode=freezing_mode,
+            use_model_cache=not args.disable_cache,
+            save_checkpoints=not args.no_checkpoint,
         )
         trainer = ContrastiveTrainer(
             model,
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
-            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt),
+            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length")),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
         )
@@ -187,6 +210,9 @@ def main(args):
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
+            freezing_mode=freezing_mode,
+            use_model_cache=not args.disable_cache,
+            save_checkpoints=not args.no_checkpoint,
 
         )
         trainer = TargetLMTrainer(
@@ -204,13 +230,28 @@ def main(args):
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
+            freezing_mode=freezing_mode,
+            use_model_cache=not args.disable_cache,
+            save_checkpoints=not args.no_checkpoint,
         )
         training_args.group_by_length = True # only possible for translation sft
         trainer = TranslationSFTTrainer(
             model,
             args=training_args,
-            train_dataset=format_translation_sft_dataset(dataset_train, tokenizer, key_src, key_tgt),
-            eval_dataset=format_translation_sft_dataset(dataset_valid, tokenizer, key_src, key_tgt),
+            train_dataset=format_translation_sft_dataset(
+                dataset_train,
+                tokenizer,
+                key_src,
+                key_tgt,
+                disable_cache=args.disable_cache,
+            ),
+            eval_dataset=format_translation_sft_dataset(
+                dataset_valid,
+                tokenizer,
+                key_src,
+                key_tgt,
+                disable_cache=args.disable_cache,
+            ),
             processing_class=tokenizer,
         )
     else:
@@ -221,13 +262,16 @@ def main(args):
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
+            freezing_mode=freezing_mode,
+            use_model_cache=not args.disable_cache,
+            save_checkpoints=not args.no_checkpoint,
         )
         trainer = ContrastiveLMTrainer(
             model,
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
-            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt),
+            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length")),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
         )
@@ -241,9 +285,9 @@ def main(args):
         1: only train router/gate weights
         2: no parameters frozen
         """
-        if args.freezing_mode == 1:
+        if freezing_mode == 1:
             trainer.configure_router_only_training(args.max_layer, multi_gpu)
-        elif args.freezing_mode == 0:
+        elif freezing_mode == 0:
             trainer.configure_early_layer_only_training(args.max_layer, multi_gpu)
     
     if args.resume_training:
@@ -254,8 +298,11 @@ def main(args):
 
     trainer.train(resume_from_checkpoint=args.resume_training)
 
-    output_dir = trainer.args.output_dir
-    trainer.save_model(output_dir)
+    if args.test_run:
+        return
+
+    output_dir = Path(trainer.args.output_dir)
+    trainer.save_model(str(output_dir))
     if trainer.is_world_process_zero():
         tokenizer.save_pretrained(output_dir)
 
@@ -273,7 +320,7 @@ def main(args):
                     )
                 except Exception:
                     src = huggingface_hub.hf_hub_download(model.config._name_or_path, py_file)
-                shutil.copy2(src, Path(output_dir) / py_file)
+                shutil.copy2(src, output_dir / py_file)
                 print(f"Copied {py_file} into {output_dir}")
 
 if __name__ == "__main__":
@@ -286,11 +333,13 @@ if __name__ == "__main__":
     parser.add_argument('-y', '--min_layer', type=int, default=None, help="the first layer at which to calculate contrastive loss")
     parser.add_argument('-x', '--max_layer', type=int, default=14, help="the last layer to train for early-layer freezing, and the last layer at which to calculate contrastive loss")
     parser.add_argument('-e', '--earlyexit', action="store_true", help="whether to early exit and not calculate LM loss")
-    parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="if passed, only router/gate weights are trained")
+    parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="0 trains early layers; 1 trains only router/gate weights")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
     parser.add_argument('-s', "--samples", type=int, default=10, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
+    parser.add_argument('--disable_cache', action="store_true", help="disable HF model use_cache and avoid dataset map cache where supported")
+    parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',

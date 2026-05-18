@@ -9,7 +9,12 @@ import re
 from types import MethodType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-POSSIBLE_ROUTER_NAMES = ['mlp.router', 'block_sparse_moe.gate', 'block_sparse_moe.router', 'mlp.gate']
+POSSIBLE_ROUTER_NAMES = [
+    'mlp.router',
+    'mlp.gate',
+    'block_sparse_moe.gate',
+    'block_sparse_moe.router',
+]
 
 
 class FreezableTrainerMixin:
@@ -272,6 +277,15 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
 
         if self.model.config.model_type == "granitemoehybrid":
             patch_granite_router_logits(self.model)
+
+    def lm_loss(self, shift_logits, shift_labels):
+        valid_labels = shift_labels.ne(-100)
+        if not valid_labels.any():
+            return shift_logits.sum() * 0.0
+        return self.lm_loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+        )
     
     def get_routing_logits(self, model, input_ids, attention_mask):
         ## need to implement for model's without output_router_logits option
@@ -320,19 +334,18 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         # Split back into target and source
         batch_size = inputs['input_ids_tgt'].size(0)
         masked_router_logits_tgt, masked_router_logits_src = combined_layer_router_logits.split(batch_size, dim=1)
-        logits_tgt, logits_src = combined_logits.split(batch_size, dim=0)
+        logits_tgt = combined_logits[:batch_size]
         
         # Clone the views to prevent inplace backward modification errors from FSDP
         masked_router_logits_tgt = masked_router_logits_tgt.clone()
         masked_router_logits_src = masked_router_logits_src.clone()
         logits_tgt = logits_tgt.clone()
-        logits_src = logits_src.clone()
 
 
         shift_logits_tgt = logits_tgt[..., :-1, :].contiguous()
         labels_tgt = inputs.get('labels_tgt', inputs['input_ids_tgt'])
         shift_labels_tgt = labels_tgt[..., 1:].contiguous()
-        lm_loss_tgt = self.lm_loss_fct(shift_logits_tgt.view(-1, shift_logits_tgt.size(-1)), shift_labels_tgt.view(-1))
+        lm_loss_tgt = self.lm_loss(shift_logits_tgt, shift_labels_tgt)
 
         contrastive_loss_val = contrastive_loss_fn(
             masked_router_logits_tgt,
@@ -347,7 +360,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         if return_outputs:
             log_outputs = {
                 "logits_tgt": logits_tgt,
-                "logits_src": logits_src,
+                "logits_src": combined_logits[batch_size:].detach(), # detach for now since we aren't using it to save vram
                 "lm_loss_tgt": lm_loss_tgt.detach(),
                 "contrastive_loss_val": contrastive_loss_val.detach(),
                 "total_loss_computed": total_loss.detach(),

@@ -6,7 +6,7 @@ uv option:
 ```
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
-CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t
+CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -m granite -f 1 --disable_cache --no-checkpoint
 ```
 
 

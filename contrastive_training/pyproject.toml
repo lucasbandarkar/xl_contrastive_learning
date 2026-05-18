@@ -2,7 +2,7 @@
 name = "contrastive-training"
 version = "0.1.0"
 description = "XL Contrastive Learning Training"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "transformers==5.3.0",
     "trl==0.29.0",
@@ -13,9 +13,17 @@ dependencies = [
     "regex",
     "seaborn",
     "tqdm",
-    "torch",
-    "torchvision",
+    "ninja==1.13.0",
+    "wheel",
+    "torch==2.10.0",
+    "torchvision==0.25.0",
     "accelerate",
+    "liger-kernel",
+    "torchtitan",
+    "torchao",
+    "causal-conv1d @ https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.6.2.post1/causal_conv1d-1.6.2.post1%2Bcu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl",
+    "mamba-ssm @ https://github.com/state-spaces/mamba/releases/download/v2.3.1/mamba_ssm-2.3.1%2Bcu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl",
+    "flash-attn @ https://github.com/lesj0610/flash-attention/releases/download/v2.8.3-cu12-torch2.10-cp312/flash_attn-2.8.3%2Bcu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl",
 ]
 
 [[tool.uv.index]]
