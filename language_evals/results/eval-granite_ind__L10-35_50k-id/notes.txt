@@ -1,0 +1,2 @@
+LR 3e-7
+alpha_contrastive 5.0
