@@ -5,11 +5,78 @@ from accelerate import dispatch_model
 from accelerate.utils import infer_auto_device_map
 from typing import Optional, Tuple, Union, Dict, Any
 import gc
-from optimizations import (
-    OptimizationConfig,
-    finalize_loaded_model,
-    prepare_model_load,
-)
+
+
+# copied from routing_analysis/get_routing_weights.py
+NICKNAME_TO_MODEL_MAP = {
+    "qwen3_30b": "Qwen/Qwen3-30B-A3B",
+    "olmoe": "allenai/OLMoE-1B-7B-0125-Instruct",
+    # "mixtral": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    # "llama4": "meta-llama/Llama-4-Scout-17B-16E-Instruct", # WASNT WORKING (conda issue ?)
+    # "phimoe": "microsoft/Phi-3.5-MoE-instruct",
+    # "moonlight": "moonshotai/Moonlight-16B-A3B-Instruct", # WASNT WORKING (too complicated to get Deepseek remote code to work)
+    "gpt": "openai/gpt-oss-20b",
+    "qwen35": "Qwen/Qwen3.5-35B-A3B",
+    "nemotron": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8", # transformers doesn't have output_router_logits implemented
+    # "kimi": "moonshotai/Kimi-Linear-48B-A3B-Instruct", # doesn't have output_router_logits enabled
+    # "llada": "inclusionAI/LLaDA2.1-mini",
+    "ling": "inclusionAI/Ling-mini-2.0",
+    "phi-tiny": "microsoft/Phi-tiny-MoE-instruct",
+    "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
+    "phi-mini" : "microsoft/Phi-mini-MoE-instruct",
+    "granite": "ibm-granite/granite-4.0-h-tiny",
+}
+
+
+def _load_model_from_pretrained(
+        model_name,
+        max_layer=None,
+        is_aws=False,
+        model_kwargs=None,
+        partial_model_cls=None,
+        trust_remote_code=True,
+    ):
+    model_kwargs = dict(model_kwargs or {})
+    partial_model_cls = partial_model_cls or PartialMoEModelForCausalLM
+    model_kwargs.setdefault("trust_remote_code", trust_remote_code)
+    if max_layer:
+        return partial_model_cls.from_pretrained(model_name, max_layer, **model_kwargs)
+    if is_aws:
+        # clark seemed to want device_map="auto"
+        return AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            **model_kwargs,
+        )
+    return AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+
+def load_models_legacy(model_name, max_layer=None, fsdp=False, is_aws=False):
+    if model_name in NICKNAME_TO_MODEL_MAP.keys():
+        model_name = NICKNAME_TO_MODEL_MAP[model_name] # now model_name is a HF model name
+    else: ## maybe model is a checkpoint address
+        return True
+
+    model_kwargs = {"dtype": torch.bfloat16}
+    model = _load_model_from_pretrained(
+        model_name,
+        max_layer=max_layer,
+        is_aws=is_aws,
+        model_kwargs=model_kwargs,
+        trust_remote_code=False,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    # Fix FSDP auto-wrap mismatch: Force _no_split_modules to match the EXACT class name
+    if fsdp and hasattr(model, "model") and hasattr(model.model, "layers") and len(model.model.layers) > 0:
+        actual_layer_cls = model.model.layers[0].__class__.__name__
+        model._no_split_modules = [actual_layer_cls]
+
+    # Force uniform dtype to prevent FSDP FlatParameter mixed-dtype errors
+    model = model.to(torch.bfloat16)
+
+    model.train()
+    return model, tokenizer
 
 
 def load_models(
@@ -18,11 +85,18 @@ def load_models(
         fsdp=False,
         is_aws=False,
         use_model_cache=False,
-        optimization_config: OptimizationConfig | None = None,
+        use_optimizations=True,
+        optimization_config=None,
     ):
     # load custom MoE model objects, can I use Mohsen's src/modeling/ modifications ?
     # most importantly need to modify forward() function
     # for memory, is there a way to load just the layers that matter ?
+    if not use_optimizations:
+        return load_models_legacy(model_name, max_layer=max_layer, fsdp=fsdp, is_aws=is_aws)
+
+    # importing it here so that Lucas can use his functioning environments for now
+    from optimizations import finalize_loaded_model, prepare_model_load
+
     model_name, _config, optimization_config, model_kwargs, kernel_context = prepare_model_load(
         model_name,
         use_model_cache=use_model_cache,
@@ -120,10 +194,17 @@ class PartialMoEModelForCausalLM(PartialForwardMoEModelMixin, torch.nn.Module):
     Memory-efficient partial MoE model that only loads layers up to max_layer.
     This should save memory by not loading unnecessary layers.
     """
-    def __init__(self, config, layer_number: int, model_kwargs: dict[str, Any] | None = None):
+    def __init__(
+            self,
+            config,
+            layer_number: int,
+            model_kwargs: dict[str, Any] | None = None,
+            trust_remote_code: bool = True,
+        ):
         super().__init__()
         self.config = config
         self.model_kwargs = model_kwargs or {}
+        self.trust_remote_code = trust_remote_code
         self.set_early_exit_layer(layer_number)
         
         # Load only the components we need
@@ -134,7 +215,7 @@ class PartialMoEModelForCausalLM(PartialForwardMoEModelMixin, torch.nn.Module):
         # Load full model temporarily
         full_model = AutoModelForCausalLM.from_pretrained(
             self.config._name_or_path, 
-            trust_remote_code=True,
+            trust_remote_code=self.trust_remote_code,
             **self.model_kwargs,
         )
         
@@ -160,14 +241,19 @@ class PartialMoEModelForCausalLM(PartialForwardMoEModelMixin, torch.nn.Module):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str, max_layer: int, **kwargs):
         """overriding from_pretrained ensures we create an instance of this class"""
+        trust_remote_code = kwargs.pop("trust_remote_code", True)
         config_kwargs = {}
         if kwargs.get("attn_implementation") is not None:
             config_kwargs["attn_implementation"] = kwargs["attn_implementation"]
 
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **config_kwargs)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name_or_path,
+            trust_remote_code=trust_remote_code,
+            **config_kwargs,
+        )
         config._name_or_path = pretrained_model_name_or_path
         
-        return cls(config, max_layer, kwargs)
+        return cls(config, max_layer, kwargs, trust_remote_code=trust_remote_code)
 
 # class PartialQwen3MoeForCausalLM(PartialForwardMoEModelMixin, Qwen3MoeForCausalLM):
 

@@ -47,7 +47,7 @@ def create_training_args(
         warmup_steps = 200
     else:
         grad_accum_steps, warmup_steps = calc_grad_accum_steps(batch_size, 32, num_gpus)
-        save_steps = 150 # about every 5000 samples
+        save_steps = 1250 # about every 40000 samples
     
     kwargs = {}
     if num_gpus > 1 or model_config.get("gradient_checkpointing", False):
@@ -77,7 +77,7 @@ def create_training_args(
         bf16=False, # disable to maintain Pure BF16 (avoids FP32 master weight upcast bug)
         eval_strategy='steps',
         # eval_steps=1/25, # eval 20 times through training
-        save_total_limit=1 if save_checkpoints and not test_run else None,
+        save_total_limit=3 if save_checkpoints and not test_run else None,
         logging_steps=warmup_steps, # about 1k samples
         remove_unused_columns=False, # essential for our ParallelDataCollator
         log_on_each_node=False,
@@ -167,6 +167,7 @@ def main(args):
         fsdp=multi_gpu,
         is_aws=aws,
         use_model_cache=not args.disable_cache,
+        use_optimizations=not args.no_optimizations,
     )
 
     data_limit = 1000 if args.test_run else args.samples * 1000
@@ -348,6 +349,7 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--learning_rate', type=float, default=1e-6, help="training learning rate")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--disable_cache', action="store_true", help="disable HF model use_cache and avoid dataset map cache where supported")
+    parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(

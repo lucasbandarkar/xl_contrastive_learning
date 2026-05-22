@@ -52,9 +52,14 @@ MIXED_LANGUAGE_CONFIGS = {
     },
 }
 
+NLLB_SOURCE_FIELDS = {
+    "source_field": "english",
+    "target_field": "translated",
+}
+
 MIXED_SOURCE_SPECS = {
     "fa": [
-        {"name": "nllb", "weight": 0.55, "kind": "nllb"},
+        {"name": "nllb", "weight": 0.55, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
         {
             "name": "english_persian_parallel",
@@ -66,7 +71,7 @@ MIXED_SOURCE_SPECS = {
         },
     ],
     "id": [
-        {"name": "nllb", "weight": 0.65, "kind": "nllb"},
+        {"name": "nllb", "weight": 0.65, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
         {
             "name": "nusax_mt",
@@ -77,23 +82,24 @@ MIXED_SOURCE_SPECS = {
         },
     ],
     "vi": [
-        {"name": "nllb", "weight": 0.50, "kind": "nllb"},
+        {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {
             "name": "mtet",
             "weight": 0.35,
             "kind": "generic",
-            "path": "albertvillanova/mtet",
+            "path": "hiimbach/mtet",
             "split": "train",
         },
         {"name": "opus100", "weight": 0.15, "kind": "opus100"},
     ],
     "si": [
-        {"name": "nllb", "weight": 0.75, "kind": "nllb"},
+        {"name": "nllb", "weight": 0.75, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
     ],
 }
 
 ENGLISH_FIELD_NAMES = ("en", "eng", "eng_Latn", "english")
+NLLB_ENGLISH_BITEXT_DATASET = "hotchpotch/nllb-english-bitext-hq"
 
 
 def opus_language_code(language: str) -> str:
@@ -219,6 +225,14 @@ def _extract_parallel_pair(
     language_config: Dict[str, Any],
     spec: Dict[str, Any],
 ) -> Tuple[Optional[str], Optional[str]]:
+    source_field = spec.get("source_field")
+    target_field = spec.get("target_field")
+    if source_field and target_field:
+        src = example.get(source_field)
+        tgt = example.get(target_field)
+        if src is not None and tgt is not None:
+            return src, tgt
+
     target_candidates = _language_field_candidates(language_config)
     translation = example.get("translation")
 
@@ -285,20 +299,13 @@ def _format_parallel_example(
 def _source_dataset_stream(spec: Dict[str, Any], language_config: Dict[str, Any]):
     kind = spec["kind"]
     if kind == "nllb":
-        target_nllb = language_config["nllb"]
-        config_names = [f"eng_Latn-{target_nllb}", f"{target_nllb}-eng_Latn"]
-        last_error = None
-        for config_name in config_names:
-            try:
-                return _load_dataset_stream(
-                    "allenai/nllb",
-                    config_name,
-                    split="train",
-                    trust_remote_code=True,
-                )
-            except Exception as exc:
-                last_error = exc
-        raise last_error
+        # allenai/nllb is still a legacy datasets script; this Parquet-backed
+        # mirror keeps the NLLB/CCMatrix English bitext usable on datasets>=4.
+        return _load_dataset_stream(
+            NLLB_ENGLISH_BITEXT_DATASET,
+            language_config["nllb"],
+            split="train",
+        )
 
     if kind == "opus100":
         return _load_dataset_stream(
@@ -361,6 +368,29 @@ def _allocate_source_counts(total_count: int, specs: List[Dict[str, Any]]) -> Di
     return counts
 
 
+def _fill_missing_examples(
+    examples: List[Dict[str, Dict[str, str]]],
+    target_count: int,
+    candidate_specs: List[Dict[str, Any]],
+    language_config: Dict[str, Any],
+    seen_pairs: set,
+    loaded_counts: Dict[str, int],
+) -> None:
+    for spec in candidate_specs:
+        missing = target_count - len(examples)
+        if missing <= 0:
+            return
+
+        try:
+            extra_examples = _collect_examples_from_source(spec, language_config, missing, seen_pairs)
+        except Exception as exc:
+            print(f"Could not fill mixed-parallel remainder from {spec['name']}: {exc}")
+            continue
+
+        examples.extend(extra_examples)
+        loaded_counts[spec["name"]] = loaded_counts.get(spec["name"], 0) + len(extra_examples)
+
+
 def _load_streamed_parallel_sources(
     language: str,
     specs: List[Dict[str, Any]],
@@ -397,15 +427,16 @@ def _load_streamed_parallel_sources(
         valid_examples.extend(examples[source_train_count:source_train_count + source_valid_count])
         loaded_counts[spec["name"]] = len(examples)
 
-    fallback_spec = specs[0]
+    refill_specs = [spec for spec in specs if loaded_counts.get(spec["name"], 0) > 0]
     for examples, target_count in ((train_examples, train_limit), (valid_examples, valid_limit)):
-        missing = target_count - len(examples)
-        if missing <= 0:
-            continue
-        try:
-            examples.extend(_collect_examples_from_source(fallback_spec, language_config, missing, seen_pairs))
-        except Exception as exc:
-            print(f"Could not fill mixed-parallel remainder from {fallback_spec['name']}: {exc}")
+        _fill_missing_examples(
+            examples,
+            target_count,
+            refill_specs,
+            language_config,
+            seen_pairs,
+            loaded_counts,
+        )
 
     if not train_examples:
         raise RuntimeError(f"No training examples could be loaded for mixed-parallel language '{language}'.")

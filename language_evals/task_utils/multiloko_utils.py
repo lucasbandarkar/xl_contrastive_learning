@@ -94,5 +94,14 @@ MULTILOKO_PROMPT_BUILDERS = {
         )
         + f"T: {question} Berikan hanya {output_type}.\nJ:"
     ),
+    "vietnamese": lambda examples, question, output_type: (
+        "Hãy trả lời các câu hỏi sau ngắn gọn nhất có thể.\n"
+        + "".join(
+            f"Hỏi: {example['question']} Chỉ trả lời bằng một {example['output_type']}.\n"
+            f"Đáp: {example['prompt_answer']}\n"
+            for example in examples
+        )
+        + f"Hỏi: {question} Chỉ trả lời bằng một {output_type}.\nĐáp:"
+    ),
     
 }

@@ -14,7 +14,7 @@ import numpy as np
 from datasets import load_dataset
 import ast
 
-from language_to_task import CODE_TO_INCLUDE_NAME, CODE_TO_MULTILOKO_NAME, FLORES_LANGCODE_MAP
+from language_to_task import CODE_TO_INCLUDE_NAME, CODE_TO_MULTILOKO_NAME, FLORES_LANGCODE_MAP, FLORES_TARGET_LANGUAGE_NAMES
 from task_utils.multiloko_utils import MULTILOKO_PROMPT_BUILDERS
 
 MMLU_PROX_LANGUAGES = ["af", "ar", "bn", "cs", "de", "en", "es", "fr", "hi", "hu", "id", "it", "ja", "ko", "mr", 
@@ -27,17 +27,6 @@ MGSM_LANGUAGES = ["bn", "de", "en", "es", "fr", "ru", "sw", "te", "th", "ja", "z
 GLOBAL_MGSM_BASE_YAML = "task_utils/global_mgsm.yaml"
 FLORES_BASE_YAML = "task_utils/flores.yaml"
 GMMLU_MEDICAL_SAMPLES_PATH = "task_utils/gmmlu_medical_samples_dict.json"
-
-FLORES_TARGET_LANGUAGE_NAMES = {
-    "fa": "Persian, written in Arabic script",
-    "si": "Sinhala, written in Sinhala script",
-    "bn": "Bengali, written in Bengali script",
-    "fr": "French",
-    "ar": "Arabic, written in Arabic script",
-    "hi": "Hindi, written in Devanagari script",
-    "id": "Indonesian",
-    "th": "Thai, written in Thai script",
-}
 
 
 class Evaluator:
