@@ -18,7 +18,7 @@ import huggingface_hub
 def create_training_args(
         model_nickname,
         output_dir=None,
-        learning_rate=4e-6,
+        learning_rate=1e-6,
         lr_scheduler='constant_with_warmup',
         partial_training=False,
         batch_size=None,
@@ -186,6 +186,7 @@ def main(args):
             output_dir=output_dir_name,
             partial_training=True,
             batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -201,12 +202,14 @@ def main(args):
             data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length")),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
+            alpha_contrastive=args.contrastive_alpha,
         )
     elif args.baseline and args.baseline_mode in ["target_lm", "frozen_lm"]:
         training_args = create_training_args(
             args.nickname,
             output_dir=output_dir_name,
             batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -227,6 +230,7 @@ def main(args):
             args.nickname,
             output_dir=output_dir_name,
             batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -259,6 +263,7 @@ def main(args):
             args.nickname,
             output_dir=output_dir_name,
             batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
             test_run=args.test_run,
             num_gpus=num_gpus,
             is_aws=aws,
@@ -274,6 +279,7 @@ def main(args):
             data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length")),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
+            alpha_contrastive=args.contrastive_alpha,
         )
 
     if args.baseline and args.baseline_mode == "frozen_lm":
@@ -337,6 +343,8 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
     parser.add_argument('-s', "--samples", type=int, default=10, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
+    parser.add_argument('-a', '--contrastive_alpha', type=float, default=1.0, help="weight for contrastive loss in contrastive training modes")
+    parser.add_argument('-r', '--learning_rate', type=float, default=1e-6, help="training learning rate")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--disable_cache', action="store_true", help="disable HF model use_cache and avoid dataset map cache where supported")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
