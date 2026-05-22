@@ -18,9 +18,18 @@ pip install -r xlcl_requirements.txt
 pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
 ```
 
+For H100s, the 12.6 cuda and nvcc toolkit required me to start over:
+```
+conda create -n xlcl python=3.14 uv cuda-toolkit=12.6.0 -c nvidia -c conda-forge -y
+conda activate xlcl
+uv pip install torch==2.10.0+cu126 torchvision --index-url https://download.pytorch.org/whl/cu126
+uv pip install -r xlcl_requirements.txt
+uv pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
+```
+
 And then: `CUDA_VISIBLE_DEVICES="7" accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t`
 
-So far `accelerate_config_1gpu.yaml` is the only config that has worked.
+Additionally, can launch `accelerate_config_4gpu.yaml` for multi-gpu (2,3,or 4) with additional `--num_processes X` flag
 
 #### Notes for Clark & Cara 4/12/2026
 

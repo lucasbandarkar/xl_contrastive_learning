@@ -171,7 +171,7 @@ def main(args):
 
     data_limit = 1000 if args.test_run else args.samples * 1000
     dataset_train, dataset_valid, key_src, key_tgt = load_parallel_datasets(
-        "opus",
+        args.data,
         args.language,
         data_limit=data_limit,
         disable_cache=args.disable_cache,
@@ -333,6 +333,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('-m', '--nickname', type=str, default="phi-tiny", help="the nickname of the model with which to name files")
     parser.add_argument('-l', '--language', type=str, default='pes', help="the target language")
+    parser.add_argument('-d', '--data', type=str, default='mixed', choices=['opus', 'mixed'], help='data source to use for contrastive/CPT data')
     # accelerate should take care of gpus ?
     # parser.add_argument('-g', '--gpus', type=str, required=True, help="the comma-separated list of gpus to evaluate on")
     # parser.add_argument('-y', '--layernum', type=int, default=None, help="backward-compatible shortcut for setting both min_layer and max_layer to the same layer")

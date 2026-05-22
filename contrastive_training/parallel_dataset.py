@@ -4,18 +4,16 @@ from datasets import load_dataset
 import torch
 from typing import List, Dict, Any
 
-MAX_LENGTH = 192 # for control
-TRANSLATION_SFT_MAX_LENGTH = 256 # longer because two texts needed in one sample
+from dataset_helpers import (
+    detect_mgsm_language,
+    format_translation_sft_batch,
+    load_mixed_parallel_dataset,
+    opus_language_code,
+    opus_split_name,
+)
 
-LANGUAGE_NAMES = {
-    "en": "English",
-    "fa": "Persian",
-    "pes": "Persian",
-    "bn": "Bengali",
-    "ben": "Bengali",
-    "id": "Indonesian",
-    "ind": "Indonesian",
-}
+MAX_LENGTH = 384 # for control
+TRANSLATION_SFT_MAX_LENGTH = 512 # longer because two texts needed in one sample
 
 
 class ParallelDataCollator:
@@ -101,15 +99,11 @@ class TargetLanguageCausalLMCollator:
 
 
 def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable_cache=False):
-    if dataset.lower() == "opus":
-        OPUS_LANGUAGE_MAP = {
-            "pes": "fa",
-            "ben": "bn",
-            "ind": "id",
-            "id": "id",
-        }
-        tgt_lang = OPUS_LANGUAGE_MAP[language]
-        split_name = f"en-{tgt_lang}" if tgt_lang > "en" else f"{tgt_lang}-en"
+    if dataset == "mixed":
+        return load_mixed_parallel_dataset(language, data_limit)
+    elif dataset == "opus":
+        tgt_lang = opus_language_code(language)
+        split_name = opus_split_name(tgt_lang)
         dataset = load_dataset("Helsinki-NLP/opus-100", split_name, keep_in_memory=disable_cache)
 
         if data_limit:
@@ -117,7 +111,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable
             valid_limit = min(data_limit, len(dataset['validation']))
             return dataset['train'].select(range(train_limit)), dataset['validation'].select(range(valid_limit)), "en", tgt_lang
         return dataset['train'], dataset['validation'], "en", tgt_lang
-    elif dataset.lower() == "math":
+    elif dataset == "math":
         ## combines mathoctopus' MGSM Instruct and MSVAMP
         # Add the project root to sys.path to enable absolute imports from project subdirectories
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -129,11 +123,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable
 
         mgsminstruct = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train", keep_in_memory=disable_cache)
 
-        def detect_language(entry):
-            extracted_language = entry['prompt'].split()[17][:-1]
-            return MGSMINSTRUCT_LANGUAGES[extracted_language]
-        
-        mgsminstruct = mgsminstruct.map(lambda x: {"lang": detect_language(x)})
+        mgsminstruct = mgsminstruct.map(lambda x: {"lang": detect_mgsm_language(x, MGSMINSTRUCT_LANGUAGES)})
         english_sample = None
         for example in mgsminstruct:
             lang = example["lang"]
@@ -153,6 +143,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable
         msvamp = load_dataset("Mathoctopus/GSM8KInstruct_Parallel", split="train", keep_in_memory=disable_cache)
 
 
+
 def format_translation_sft_dataset(
     dataset,
     tokenizer,
@@ -166,51 +157,8 @@ def format_translation_sft_dataset(
         (tgt_language_key, src_language_key),
     ]
 
-    def format_text_pair(src_text, tgt_text, src_key, tgt_key):
-        src_name = LANGUAGE_NAMES.get(src_key, src_key)
-        tgt_name = LANGUAGE_NAMES.get(tgt_key, tgt_key)
-        prompt = (
-            f"Translate the following text from {src_name} to {tgt_name}. "
-            "Return only the translation.\n\n"
-            f"{src_text}\n\n"
-            "Translation:\n"
-        )
-        completion = tgt_text
-        if tokenizer.eos_token:
-            completion += tokenizer.eos_token
-
-        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        completion_ids = tokenizer(completion, add_special_tokens=False)["input_ids"]
-        input_ids = (prompt_ids + completion_ids)[:max_length]
-        completion_mask = ([0] * len(prompt_ids) + [1] * len(completion_ids))[:max_length]
-
-        return {
-            "input_ids": input_ids,
-            "completion_mask": completion_mask,
-        }
-
-    def format_batch(batch):
-        input_ids = []
-        completion_masks = []
-
-        for i, translation in enumerate(batch["translation"]):
-            src_key, tgt_key = direction_pairs[i % 2]
-            formatted = format_text_pair(
-                translation[src_key],
-                translation[tgt_key],
-                src_key,
-                tgt_key,
-            )
-            input_ids.append(formatted["input_ids"])
-            completion_masks.append(formatted["completion_mask"])
-
-        return {
-            "input_ids": input_ids,
-            "completion_mask": completion_masks,
-        }
-
     return dataset.map(
-        format_batch,
+        lambda batch: format_translation_sft_batch(batch, tokenizer, direction_pairs, max_length),
         batched=True,
         remove_columns=dataset.column_names,
         load_from_cache_file=not disable_cache,
