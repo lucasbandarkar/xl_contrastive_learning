@@ -1,7 +1,7 @@
 """
 When you want to evaluate a new language
 1. Add it to LANGUAGE_TO_TASK using its row in https://docs.google.com/spreadsheets/d/1IIpKgq466sDXOjh1IQXtDvnTvDfi3WeGIdM2X8wR2Kw/
-2. Add it to FLORES_LANGCODE_MAP using https://github.com/facebookresearch/flores/blob/main/flores200/README.md and add its target language name to FLORES_TARGET_LANGUAGE_NAMES
+2. Add it to FLORES_TARGET_LANGUAGE_NAMES and FLORES_LANGCODE_MAP using https://github.com/facebookresearch/flores/blob/main/flores200/README.md
 3. If it's in INCLUDE, Add it to CODE_TO_INCLUDE_NAME using https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks/include/default
 4. If it's in Multiloko, add it to CODE_TO_MULTILOKO_NAME and ensure multiloko_utils.py has a prompt builder for it.
 """
@@ -14,11 +14,13 @@ LANGUAGE_TO_TASK = {
     "hi": ["belebele", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "id": ["belebele", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "th": ["belebele", "mgsm", "mmlu_prox", "flores", "multiloko", "global_piqa"],
-    "vi": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
+    "ky": ["belebele", "mgsm", "flores", "global_piqa"],
+    "kn": ["belebele", "mgsm", "flores", "global_piqa"],
     # all 8
     "bn": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "fr": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "ar": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
+    "vi": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
 }
 
 FLORES_LANGCODE_MAP = {
@@ -32,6 +34,8 @@ FLORES_LANGCODE_MAP = {
     "id": "ind_Latn",
     "th": "tha_Thai",
     "vi": "vie_Latn",
+    "ky": "kir_Cyrl",
+    "kn": "kan_Knda",
 }
 
 FLORES_TARGET_LANGUAGE_NAMES = {
@@ -43,7 +47,9 @@ FLORES_TARGET_LANGUAGE_NAMES = {
     "hi": "Hindi, written in Devanagari script",
     "id": "Indonesian",
     "th": "Thai, written in Thai script",
-    "vi": "Vietnamese"
+    "vi": "Vietnamese",
+    "ky": "Kyrgyz, written in Cyrillic script",
+    "kn": "Kannada, written in Kannada script",
 }
 
 CODE_TO_INCLUDE_NAME = {

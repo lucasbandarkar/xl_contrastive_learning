@@ -10,16 +10,24 @@ from parallel_dataset import (
 )
 from transformers import TrainingArguments
 import json
+import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 import huggingface_hub
+
+TRACKED_TRAINING_ARG_NAMES = (
+    "per_device_train_batch_size", "per_device_eval_batch_size", "gradient_accumulation_steps", "auto_find_batch_size",
+    "optim", "num_train_epochs", "max_steps", "learning_rate", "lr_scheduler_type", "warmup_steps", "neftune_noise_alpha",
+    "max_grad_norm", "adam_beta2", "bf16", "gradient_checkpointing", "use_cache",
+)
 
 
 def create_training_args(
         model_nickname,
         output_dir=None,
         learning_rate=1e-6,
-        lr_scheduler='constant_with_warmup',
+        lr_scheduler='warmup_stable_decay',
         partial_training=False,
         batch_size=None,
         test_run=False,
@@ -52,6 +60,8 @@ def create_training_args(
     kwargs = {}
     if num_gpus > 1 or model_config.get("gradient_checkpointing", False):
         kwargs['gradient_checkpointing'] = True
+    if lr_scheduler == 'warmup_stable_decay':
+        kwargs['lr_scheduler_kwargs']={"num_decay_steps": 4 * warmup_steps,} # cooldown over 40k samples
 
     location = "." if is_aws else "/data2/lucasbandarkar"
 
@@ -85,6 +95,79 @@ def create_training_args(
         **kwargs
     )
 
+def build_training_metadata(
+    args, *, trainer, data_limit, key_src, key_tgt, dataset_train, dataset_valid,
+    output_dir_name, train_metrics, num_gpus, multi_gpu, aws, freezing_mode,
+):
+    """
+    Collect the training details that should travel with saved checkpoints.
+
+    Edit this function when you want to add/remove tracked arguments or
+    reorganize the metadata written to training_metadata.json.
+    """
+    state = trainer.state
+    training_args = {
+        name: getattr(trainer.args, name) for name in TRACKED_TRAINING_ARG_NAMES if hasattr(trainer.args, name)
+    }
+    training_args["optim"] = str(training_args["optim"])
+    training_args["lr_scheduler_type"] = str(training_args["lr_scheduler_type"])
+
+    runtime = train_metrics.get("train_runtime")
+    performance = {
+        "total_steps": state.global_step,
+        "train_runtime_seconds": runtime,
+        "seconds_per_step": runtime / state.global_step if runtime and state.global_step else None,
+        "train_samples_per_second": train_metrics.get("train_samples_per_second"),
+        "train_steps_per_second": train_metrics.get("train_steps_per_second"),
+        "train_loss": train_metrics.get("train_loss"),
+        "total_flos": train_metrics.get("total_flos"),
+    }
+
+    return {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "run": {"output_dir_name": output_dir_name, "resume_from_checkpoint": args.resume_training},
+        "training_args": training_args,
+        "base_model": args.nickname,
+        "data": {
+            "source": args.data,
+            "language": args.language,
+            "data_limit": data_limit,
+            "source_key": key_src,
+            "target_key": key_tgt,
+            "train_size": len(dataset_train),
+            "valid_size": len(dataset_valid),
+        },
+        "training_mode": {
+            "baseline": args.baseline,
+            "baseline_mode": args.baseline_mode if args.baseline else None,
+            "earlyexit": args.earlyexit,
+            "min_layer": args.min_layer,
+            "max_layer": args.max_layer,
+            "freezing_mode": freezing_mode,
+            "contrastive_alpha": args.contrastive_alpha,
+        },
+        "loss_tracking": {
+            "train_loss": "training objective", 
+            "eval_loss": getattr(trainer, "eval_loss_key", "lm_loss")
+        },
+        "environment": {
+            "num_gpus": num_gpus,
+            "multi_gpu": multi_gpu,
+            "is_aws": aws,
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+            "torch_version": torch.__version__,
+        },
+        "performance": performance,
+        "log_history": state.log_history,
+    }
+
+def save_training_metadata(output_dir: Path, metadata: dict):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path = output_dir / "training_metadata.json"
+    with metadata_path.open("w") as f:
+        json.dump(metadata, f, indent=4, ensure_ascii=False)
+    print(f"Wrote training metadata to {metadata_path}")
+
 def get_model_config(model_nickname):
     """ fetches config file for model """
     with open("training_configs.json", "r") as file:
@@ -105,20 +188,40 @@ def calc_grad_accum_steps(device_batch_size, effective_batch_size, world_size=1)
     while grad_accum_steps * world_size * device_batch_size < effective_batch_size:
         grad_accum_steps *= 2
         
-    num_warmup_steps = int(1000 / effective_batch_size) # warmup lasts 1k samples, regardless of what batch size is
+    num_warmup_steps = int(10000 / effective_batch_size) # warmup lasts 10k samples, regardless of what batch size is
     return grad_accum_steps, num_warmup_steps
 
-def configure_resume_training(training_args, resume_from_checkpoint):
+def get_update_steps_per_epoch(trainer):
+    train_dataloader = trainer.get_train_dataloader()
+    try:
+        batches_per_epoch = len(train_dataloader)
+    except TypeError as exc:
+        raise ValueError(
+            "Cannot extend resumed training by one dataset pass because the train dataloader "
+            "does not expose a length. Set TrainingArguments.max_steps explicitly instead."
+        ) from exc
+
+    return max(batches_per_epoch // trainer.args.gradient_accumulation_steps, 1), batches_per_epoch
+
+def configure_resume_training(trainer, resume_from_checkpoint):
+    training_args = trainer.args
     trainer_state_path = Path(resume_from_checkpoint) / "trainer_state.json"
     with open(trainer_state_path, "r") as file:
         trainer_state = json.load(file)
 
-    checkpoint_epoch = trainer_state.get("epoch", 1.0)
-    training_args.num_train_epochs = float(checkpoint_epoch + 1)
+    checkpoint_epoch = float(trainer_state.get("epoch", 0.0))
+    checkpoint_global_step = int(trainer_state.get("global_step", 0))
+    update_steps_per_epoch, batches_per_epoch = get_update_steps_per_epoch(trainer)
+    target_global_step = checkpoint_global_step + update_steps_per_epoch
+
+    training_args.max_steps = target_global_step
+    training_args.num_train_epochs = target_global_step / update_steps_per_epoch
     training_args.output_dir = str(Path(resume_from_checkpoint).parent)
     print(
-        f"Resuming from {resume_from_checkpoint} at epoch {checkpoint_epoch:.3f}; "
-        f"training until epoch {training_args.num_train_epochs:.3f}."
+        f"Resuming from {resume_from_checkpoint} at checkpoint epoch {checkpoint_epoch:.3f} "
+        f"and global_step {checkpoint_global_step}. Current run has {batches_per_epoch} "
+        f"dataloader batches and {update_steps_per_epoch} optimizer steps per dataset pass; "
+        f"training until global_step {target_global_step}."
     )
 
 def create_output_directory_name(args, size_suffix):
@@ -140,6 +243,8 @@ def create_output_directory_name(args, size_suffix):
         
         if args.freezing_mode == 1: 
             training_details += "_routers"
+        elif args.freezing_mode == 2:
+            training_details += "_nofreeze"
 
     return f"{prefix}_{training_details}_{size_suffix}"
 
@@ -217,7 +322,6 @@ def main(args):
             freezing_mode=freezing_mode,
             use_model_cache=not args.disable_cache,
             save_checkpoints=not args.no_checkpoint,
-
         )
         trainer = TargetLMTrainer(
             model,
@@ -299,11 +403,11 @@ def main(args):
     
     if args.resume_training:
         configure_resume_training(
-            trainer.args,
+            trainer,
             args.resume_training,
         )
 
-    trainer.train(resume_from_checkpoint=args.resume_training)
+    train_output = trainer.train(resume_from_checkpoint=args.resume_training)
 
     if args.test_run:
         return
@@ -330,6 +434,14 @@ def main(args):
                 shutil.copy2(src, output_dir / py_file)
                 print(f"Copied {py_file} into {output_dir}")
 
+        metadata = build_training_metadata(
+            args, trainer=trainer, data_limit=data_limit, key_src=key_src, key_tgt=key_tgt,
+            dataset_train=dataset_train, dataset_valid=dataset_valid, output_dir_name=output_dir_name,
+            train_metrics=train_output.metrics, num_gpus=num_gpus, multi_gpu=multi_gpu, aws=aws,
+            freezing_mode=freezing_mode,
+        )
+        save_training_metadata(output_dir, metadata)
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('-m', '--nickname', type=str, default="phi-tiny", help="the nickname of the model with which to name files")
@@ -341,7 +453,7 @@ if __name__ == "__main__":
     parser.add_argument('-y', '--min_layer', type=int, default=None, help="the first layer at which to calculate contrastive loss")
     parser.add_argument('-x', '--max_layer', type=int, default=14, help="the last layer to train for early-layer freezing, and the last layer at which to calculate contrastive loss")
     parser.add_argument('-e', '--earlyexit', action="store_true", help="whether to early exit and not calculate LM loss")
-    parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="0 trains early layers; 1 trains only router/gate weights")
+    parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="0 trains early layers; 1 trains only router/gate weights; 2 trains all layers")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
     parser.add_argument('-s', "--samples", type=int, default=10, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")

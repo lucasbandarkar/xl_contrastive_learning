@@ -6,16 +6,13 @@ fewshot_split: test # Using test for few-shot is common if train is missing
 # target_delimiter: ""
 
 # Schema Mapping
-doc_to_text: "{{instruction}}\n\nQuestion: {{question}}\n\n{{answer_prefix}}"
+doc_to_text: "{{instruction}}\n\nQuestion: {{question}}\n\n{{answer_prefix}}:"
 doc_to_target: "{{answer}}" # This is just the number (e.g., "42")
 
 # Handling Reasoning Models in 2026
 generation_kwargs:
   until:
-    - "\n\n"
-    - "\n"
     - "Question:"
-    - "</think>"
   do_sample: false
   temperature: 0.0
 

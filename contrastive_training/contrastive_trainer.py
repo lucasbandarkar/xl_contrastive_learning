@@ -273,6 +273,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         self.key_layer = self.min_layer
         self.alpha_contrastive = alpha_contrastive
         self.scoring_func = scoring_func
+        self.eval_loss_key = "lm_loss_tgt"
         self.lm_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100) # Standard LM loss
 
         if self.model.config.model_type == "granitemoehybrid":
@@ -378,16 +379,9 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         
         inputs = self._prepare_inputs(inputs)
         with torch.no_grad():
-            # We call compute_loss with return_outputs=True to get our split logits
-            # This ensures the eval loss is calculated exactly like the training loss
-            loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
-            loss = loss.detach()
-
-            # self.log({
-            #     "eval_lm_loss_tgt": outputs["lm_loss_tgt"],
-            #     "eval_contrastive_loss_val": outputs["contrastive_loss_val"],
-            #     "eval_total_loss_computed": outputs["total_loss_computed"]
-            # })
+            # eval_loss tracks LM-only loss for ContrastiveLMTrainer; training still optimizes the mixed objective.
+            _, outputs = self.compute_loss(model, inputs, return_outputs=True)
+            loss = outputs[self.eval_loss_key].detach()
             
             # Extract the specific parts for evaluation
             # We focus on the target language for the 'logits' and 'labels'
@@ -402,6 +396,7 @@ class ContrastiveTrainer(ContrastiveLMTrainer):
     def __init__(self, *args, **kwargs):
         self.training_type = 'full'
         super().__init__(*args, **kwargs)
+        self.eval_loss_key = "contrastive_loss_val"
         
     def compute_loss(
         self,

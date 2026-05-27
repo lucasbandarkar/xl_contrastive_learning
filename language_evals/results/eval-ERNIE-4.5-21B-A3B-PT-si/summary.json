@@ -1,0 +1,17 @@
+{
+    "belebele": {
+        "belebele_sin_Sinh": 0.726
+    },
+    "flores": {
+        "si": 35.35
+    },
+    "global_mmlu_medical": {
+        "si": 0.517
+    },
+    "global_piqa": {
+        "global_piqa_completions_sin_sinh": 0.51
+    },
+    "mgsm": {
+        "si": 0.088
+    }
+}

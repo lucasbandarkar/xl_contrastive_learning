@@ -2,9 +2,6 @@
     "belebele": {
         "belebele_sin_Sinh": 0.216
     },
-    "mgsm": {
-        "si": 0.0
-    },
     "global_mmlu_medical": {
         "si": 0.255
     },

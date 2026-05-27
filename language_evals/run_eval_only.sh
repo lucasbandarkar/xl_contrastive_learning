@@ -25,6 +25,7 @@ TASK=""
 ADAPTER_PATH=""
 BASE_MODEL=""
 REQUESTED_GPUS="0"
+NO_DEBUG_SAMPLES="0"
 
 count_gpus() {
   local devices="${1// /}"
@@ -56,6 +57,7 @@ Options:
   -a, --adapter-path PATH     Optional LoRA adapter path to merge before eval
   -b, --base-model NAME       Original HF model ID for FSDP checkpoint export
   -g, --gpus LIST             CUDA_VISIBLE_DEVICES value
+  --no-debug-samples          Keep normal summary output for single task runs
   -h, --help                  Show this help
 
 Environment:
@@ -89,6 +91,10 @@ while [[ $# -gt 0 ]]; do
     -g|--gpus)
       REQUESTED_GPUS="$2"
       shift 2
+      ;;
+    --no-debug-samples)
+      NO_DEBUG_SAMPLES="1"
+      shift
       ;;
     -h|--help)
       usage
@@ -147,6 +153,9 @@ if [[ -n "$ADAPTER_PATH" ]]; then
 fi
 if [[ -n "$BASE_MODEL" ]]; then
   cmd+=(--base_model "$BASE_MODEL")
+fi
+if [[ "$NO_DEBUG_SAMPLES" == "1" ]]; then
+  cmd+=(--no_debug_samples)
 fi
 
 exec "${cmd[@]}"

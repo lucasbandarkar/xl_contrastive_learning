@@ -61,35 +61,16 @@ MIXED_SOURCE_SPECS = {
     "fa": [
         {"name": "nllb", "weight": 0.55, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
-        {
-            "name": "english_persian_parallel",
-            "weight": 0.20,
-            "kind": "generic",
-            "path": "shenasa/English-Persian-Parallel-Dataset",
-            "split": "train",
-            "two_column_order": "en-tgt",
-        },
+        {"name": "english_persian_parallel", "weight": 0.20, "kind": "generic", "path": "shenasa/English-Persian-Parallel-Dataset", "split": "train", "two_column_order": "en-tgt",},
     ],
     "id": [
         {"name": "nllb", "weight": 0.65, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
-        {
-            "name": "nusax_mt",
-            "weight": 0.10,
-            "kind": "generic",
-            "path": "indonlp/NusaX-MT",
-            "split": "train",
-        },
+        {"name": "nusax_mt", "weight": 0.10, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
     ],
     "vi": [
         {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {
-            "name": "mtet",
-            "weight": 0.35,
-            "kind": "generic",
-            "path": "hiimbach/mtet",
-            "split": "train",
-        },
+        {"name": "mtet", "weight": 0.35, "kind": "generic", "path": "hiimbach/mtet", "split": "train",},
         {"name": "opus100", "weight": 0.15, "kind": "opus100"},
     ],
     "si": [

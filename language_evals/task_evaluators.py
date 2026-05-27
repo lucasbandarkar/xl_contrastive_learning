@@ -58,6 +58,7 @@ class MGSMEvaluator(Evaluator):
         global_mgsm_langcodes = [l for l in langcodes if l not in MGSM_LANGUAGES]
 
         results_clean: dict[str, float] = {}
+        debug_payload: dict[str, Any] = {"scores": results_clean, "results": {}, "samples": {}} if debugging else {}
         if base_mgsm_langcodes:
             task_names = [f"mgsm_direct_{lang}" for lang in base_mgsm_langcodes]
             eval_kwargs = {
@@ -74,18 +75,30 @@ class MGSMEvaluator(Evaluator):
             for task_name, metrics in results["results"].items():
                 lang = task_name.removeprefix("mgsm_direct_")
                 results_clean[lang] = np.round(metrics["exact_match,flexible-extract"], 3)
+            if debugging:
+                debug_payload["results"].update(results.get("results", {}))
+                debug_payload["samples"].update(results.get("samples", {}))
 
-        results_clean.update(
-            self.lm_eval_evaluate_global_mgsm(
-                global_mgsm_langcodes,
-                debugging=debugging,
-            )
+        global_results = self.lm_eval_evaluate_global_mgsm(
+            global_mgsm_langcodes,
+            debugging=debugging,
         )
+        if debugging:
+            global_results_clean, global_debug_payload = global_results
+            results_clean.update(global_results_clean)
+            debug_payload["results"].update(global_debug_payload.get("results", {}))
+            debug_payload["samples"].update(global_debug_payload.get("samples", {}))
+            self.write_results(output_file, debug_payload)
+            return results_clean
+
+        results_clean.update(global_results)
         self.write_results(output_file, results_clean)
         return results_clean
 
     def lm_eval_evaluate_global_mgsm(self, global_mgsm_langcodes, debugging=False, output_file="output.json"):
         if not global_mgsm_langcodes:
+            if debugging:
+                return {}, {"results": {}, "samples": {}}
             return {}
 
         with tempfile.TemporaryDirectory(prefix="global_mgsm_tasks_") as temp_dir:
@@ -119,6 +132,12 @@ class MGSMEvaluator(Evaluator):
         for task_name, metrics in results["results"].items():
             lang = task_name.removeprefix("global_mgsm_")
             results_clean[lang] = np.round(metrics["exact_match,flexible-extract"], 3)
+
+        if debugging:
+            return results_clean, {
+                "results": results.get("results", {}),
+                "samples": results.get("samples", {}),
+            }
         return results_clean
 
 

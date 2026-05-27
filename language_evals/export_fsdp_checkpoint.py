@@ -3,12 +3,32 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from accelerate.utils import merge_fsdp_weights
 from safetensors import safe_open
 from safetensors.torch import save_file
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig
+
+
+FSDP_BASE_MODEL_HINTS = {
+    "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
+    "granite": "ibm-granite/granite-4.0-h-tiny",
+    "qwen35": "Qwen/Qwen3.5-35B-A3B",
+    "qwen3.5": "Qwen/Qwen3.5-35B-A3B",
+    "ling": "inclusionAI/Ling-mini-2.0",
+}
+
+
+def checkpoint_step_sort_key(path: Path) -> tuple[int, str]:
+    for parent in [path, *path.parents]:
+        if parent.name.startswith("checkpoint-"):
+            step_text = parent.name.removeprefix("checkpoint-")
+            if step_text.isdigit():
+                return int(step_text), str(path)
+    return -1, str(path)
 
 
 def find_fsdp_weights_dir(checkpoint_dir: Path) -> Path:
@@ -19,11 +39,89 @@ def find_fsdp_weights_dir(checkpoint_dir: Path) -> Path:
     if candidates:
         return candidates[-1]
 
-    nested_candidates = sorted(checkpoint_dir.glob("checkpoint-*/pytorch_model_fsdp*"))
+    nested_candidates = sorted(
+        checkpoint_dir.glob("checkpoint-*/pytorch_model_fsdp*"),
+        key=checkpoint_step_sort_key,
+    )
     if nested_candidates:
         return nested_candidates[-1]
 
     raise FileNotFoundError(f"No pytorch_model_fsdp* directory found under {checkpoint_dir}")
+
+
+def infer_fsdp_base_model(model_dir: Path) -> str | None:
+    path_hints = []
+    current_path = model_dir
+    for _ in range(4):
+        path_hints.append(current_path.name)
+        current_path = current_path.parent
+
+    hint_text = " ".join(path_hints).lower()
+    for hint, repo_id in FSDP_BASE_MODEL_HINTS.items():
+        if hint in hint_text:
+            return repo_id
+    return None
+
+
+def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
+    return sorted(
+        path for path in model_dir.glob("checkpoint-*_vllm")
+        if (path / "config.json").exists()
+    )
+
+
+def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
+    model_dir = Path(model_path)
+    if not model_dir.is_dir() or (model_dir / "config.json").exists():
+        return model_path
+
+    output_dir = model_dir.with_name(f"{model_dir.name}_vllm")
+    try:
+        fsdp_weights_dir = find_fsdp_weights_dir(model_dir)
+    except FileNotFoundError:
+        if (output_dir / "config.json").exists():
+            print(f"Using existing exported FSDP checkpoint at {output_dir}")
+            return str(output_dir)
+
+        if (model_dir / "training_metadata.json").exists() or list(model_dir.glob("checkpoint-*")):
+            checkpoint_exports = find_existing_checkpoint_exports(model_dir)
+            hint = ""
+            if checkpoint_exports:
+                export_list = ", ".join(str(path) for path in checkpoint_exports)
+                hint = f" Existing checkpoint-level exports: {export_list}."
+            raise FileNotFoundError(
+                f"{model_dir} looks like a training output directory, but it has no config.json, "
+                f"no FSDP weights, and no run-level export at {output_dir}."
+                f"{hint}"
+            )
+        return model_path
+
+    if (output_dir / "config.json").exists():
+        print(f"Using existing exported FSDP checkpoint at {output_dir}")
+        return str(output_dir)
+
+    if base_model is None:
+        base_model = infer_fsdp_base_model(model_dir)
+
+    if base_model is None:
+        raise ValueError(
+            f"Found FSDP weights at {fsdp_weights_dir}, but could not infer the base model. "
+            "Pass --base_model to export this checkpoint for vLLM."
+        )
+
+    export_script = Path(__file__).resolve()
+    # Keep the heavy FSDP merge in a separate process so vLLM starts
+    # from a clean Python process after the large tensor rewrite.
+    subprocess.run(
+        [
+            sys.executable, str(export_script),
+            "--checkpoint-dir", str(model_dir),
+            "--base-model", base_model,
+            "--output-dir", str(output_dir),
+        ],
+        check=True,
+    )
+    return str(output_dir)
 
 
 def copy_if_exists(src_dir: Path, output_dir: Path, filename: str):

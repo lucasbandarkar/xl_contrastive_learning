@@ -18,7 +18,7 @@
         "include_base_44_vietnamese_few_shot_og_stem": 0.54
     },
     "mgsm": {
-        "vi": 0.092
+        "vi": 0.232
     },
     "mmlu_prox": {
         "mmlu_prox_vi": 0.09549945115257959
