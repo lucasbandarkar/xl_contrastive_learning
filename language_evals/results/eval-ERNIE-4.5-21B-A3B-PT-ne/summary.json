@@ -1,0 +1,25 @@
+{
+    "belebele": {
+        "belebele_npi_Deva": 0.688
+    },
+    "flores": {
+        "ne": 44.442
+    },
+    "global_mmlu_medical": {
+        "ne": 0.586
+    },
+    "global_piqa": {
+        "global_piqa_completions_npi_deva": 0.68
+    },
+    "include": {
+        "include_base_44_nepali": 0.554,
+        "include_base_44_nepali_few_shot_og_driving_license": 0.676,
+        "include_base_44_nepali_few_shot_og_professional_certification": 0.432
+    },
+    "mgsm": {
+        "ne": 0.092
+    },
+    "mmlu_prox": {
+        "mmlu_prox_ne": 0.0
+    }
+}

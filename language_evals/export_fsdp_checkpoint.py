@@ -16,6 +16,7 @@ from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 FSDP_BASE_MODEL_HINTS = {
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
     "granite": "ibm-granite/granite-4.0-h-tiny",
+    "gpt": "openai/gpt-oss-20b",
     "qwen35": "Qwen/Qwen3.5-35B-A3B",
     "qwen3.5": "Qwen/Qwen3.5-35B-A3B",
     "ling": "inclusionAI/Ling-mini-2.0",
@@ -70,9 +71,16 @@ def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
     )
 
 
+def normalize_exported_config_for_vllm(output_dir: Path):
+    normalize_gpt_oss_dequantized_config_for_vllm(output_dir)
+
+
 def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
     model_dir = Path(model_path)
-    if not model_dir.is_dir() or (model_dir / "config.json").exists():
+    if not model_dir.is_dir():
+        return model_path
+    if (model_dir / "config.json").exists():
+        normalize_exported_config_for_vllm(model_dir)
         return model_path
 
     output_dir = model_dir.with_name(f"{model_dir.name}_vllm")
@@ -80,6 +88,7 @@ def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None)
         fsdp_weights_dir = find_fsdp_weights_dir(model_dir)
     except FileNotFoundError:
         if (output_dir / "config.json").exists():
+            normalize_exported_config_for_vllm(output_dir)
             print(f"Using existing exported FSDP checkpoint at {output_dir}")
             return str(output_dir)
 
@@ -97,6 +106,7 @@ def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None)
         return model_path
 
     if (output_dir / "config.json").exists():
+        normalize_exported_config_for_vllm(output_dir)
         print(f"Using existing exported FSDP checkpoint at {output_dir}")
         return str(output_dir)
 
@@ -128,6 +138,75 @@ def copy_if_exists(src_dir: Path, output_dir: Path, filename: str):
     src = src_dir / filename
     if src.exists():
         shutil.copy2(src, output_dir / filename)
+
+
+def iter_exported_safetensor_paths(output_dir: Path) -> list[Path]:
+    index_file = output_dir / "model.safetensors.index.json"
+    if index_file.exists():
+        with index_file.open("r") as f:
+            index = json.load(f)
+        shard_names = sorted(set(index.get("weight_map", {}).values()))
+        return [output_dir / shard_name for shard_name in shard_names]
+
+    model_file = output_dir / "model.safetensors"
+    if model_file.exists():
+        return [model_file]
+
+    return sorted(output_dir.glob("*.safetensors"))
+
+
+def exported_gpt_oss_weights_are_dequantized(output_dir: Path) -> bool:
+    has_dense_expert_weights = False
+
+    for path in iter_exported_safetensor_paths(output_dir):
+        with safe_open(path, framework="pt") as f:
+            for key in f.keys():
+                if key.endswith(
+                    (
+                        ".mlp.experts.gate_up_proj_blocks",
+                        ".mlp.experts.down_proj_blocks",
+                        ".mlp.experts.gate_up_proj_scales",
+                        ".mlp.experts.down_proj_scales",
+                    )
+                ):
+                    return False
+
+                if key.endswith(
+                    (
+                        ".mlp.experts.gate_up_proj",
+                        ".mlp.experts.down_proj",
+                    )
+                ):
+                    tensor_slice = f.get_slice(key)
+                    if tensor_slice.get_dtype() in {"BF16", "F16", "F32"}:
+                        has_dense_expert_weights = True
+
+    return has_dense_expert_weights
+
+
+def normalize_gpt_oss_dequantized_config_for_vllm(output_dir: Path):
+    config_path = output_dir / "config.json"
+    if not config_path.exists():
+        return
+
+    with config_path.open("r") as f:
+        config = json.load(f)
+
+    if config.get("model_type") != "gpt_oss":
+        return
+
+    quant_config = config.get("quantization_config")
+    if not isinstance(quant_config, dict) or quant_config.get("quant_method") != "mxfp4":
+        return
+
+    if not exported_gpt_oss_weights_are_dequantized(output_dir):
+        return
+
+    config.pop("quantization_config", None)
+    with config_path.open("w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    print("Removed stale GPT-OSS MXFP4 quantization_config from dequantized BF16 export")
 
 
 def normalize_ernie_experts_for_vllm(output_dir: Path):
@@ -252,6 +331,7 @@ def export_checkpoint(checkpoint_dir: Path, base_model: str, output_dir: Path):
 
     if config.model_type == "ernie4_5_moe":
         normalize_ernie_experts_for_vllm(output_dir)
+    normalize_exported_config_for_vllm(output_dir)
 
     print(f"Writing tokenizer from {base_model}")
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)

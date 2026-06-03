@@ -199,7 +199,7 @@ class MMLUProXEvaluator(Evaluator):
             batch_size="auto",
             verbosity="WARNING",
             log_samples=False,
-            gen_kwargs={"max_gen_toks": 1024},
+            gen_kwargs={"max_gen_toks": 16},
         )
         results_clean = {}
         for task, metrics in results['groups'].items():

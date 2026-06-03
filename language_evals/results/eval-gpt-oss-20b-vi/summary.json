@@ -1,0 +1,29 @@
+{
+    "belebele": {
+        "belebele_vie_Latn": 0.57
+    },
+    "flores": {
+        "vi": 3.25
+    },
+    "global_mmlu_medical": {
+        "vi": 0.579
+    },
+    "global_piqa": {
+        "global_piqa_completions_vie_latn": 0.55
+    },
+    "include": {
+        "include_base_44_vietnamese": 0.396,
+        "include_base_44_vietnamese_few_shot_og_arts_humanities": 0.416,
+        "include_base_44_vietnamese_few_shot_og_social_science": 0.364,
+        "include_base_44_vietnamese_few_shot_og_stem": 0.46
+    },
+    "mgsm": {
+        "vi": 0.28
+    },
+    "mmlu_prox": {
+        "mmlu_prox_vi": 0.0
+    },
+    "multiloko": {
+        "vi": 0.0
+    }
+}

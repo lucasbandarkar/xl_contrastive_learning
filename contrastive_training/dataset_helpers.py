@@ -7,26 +7,43 @@ LANGUAGE_NAMES = {
     "en": "English",
     "fa": "Persian",
     "bn": "Bengali",
+    "hu": "Hungarian",
     "id": "Indonesian",
+    "kn": "Kannada",
+    "ky": "Kyrgyz",
+    "ne": "Nepali",
+    "te": "Telugu",
     "vi": "Vietnamese",
     "si": "Sinhala",
+    "yo": "Yoruba",
+    "zu": "Zulu",
 }
 
 OPUS_LANGUAGE_CODES = {
     "fa": "fa",
     "pes": "fa",
-    "pes_Arab": "fa",
     "bn": "bn",
     "ben": "bn",
+    "hu": "hu",
+    "hun": "hu",
     "id": "id",
     "ind": "id",
-    "ind_Latn": "id",
+    "kn": "kn",
+    "kan": "kn",
+    "ky": "ky",
+    "kir": "ky",
+    "ne": "ne",
+    "npi": "ne",
+    "te": "te",
+    "tel": "te",
     "vi": "vi",
     "vie": "vi",
-    "vie_Latn": "vi",
     "si": "si",
     "sin": "si",
-    "sin_Sinh": "si",
+    "yo": "yo",
+    "yor": "yo",
+    "zu": "zu",
+    "zul": "zu",
 }
 
 MIXED_LANGUAGE_CONFIGS = {
@@ -35,10 +52,40 @@ MIXED_LANGUAGE_CONFIGS = {
         "nllb": "pes_Arab",
         "names": ("fa", "pes", "persian", "farsi"),
     },
+    "bn": {
+        "opus": "bn",
+        "nllb": "ben_Beng",
+        "names": ("bn", "ben", "bengali", "bangla"),
+    },
+    "hu": {
+        "opus": "hu",
+        "nllb": "hun_Latn",
+        "names": ("hu", "hun", "hungarian", "magyar"),
+    },
     "id": {
         "opus": "id",
         "nllb": "ind_Latn",
         "names": ("id", "ind", "indonesian"),
+    },
+    "kn": {
+        "opus": "kn",
+        "nllb": "kan_Knda",
+        "names": ("kn", "kan", "kannada"),
+    },
+    "ky": {
+        "opus": "ky",
+        "nllb": "kir_Cyrl",
+        "names": ("ky", "kir", "kyrgyz", "kirghiz"),
+    },
+    "ne": {
+        "opus": "ne",
+        "nllb": "npi_Deva",
+        "names": ("ne", "npi", "nepali"),
+    },
+    "te": {
+        "opus": "te",
+        "nllb": "tel_Telu",
+        "names": ("te", "tel", "telugu"),
     },
     "vi": {
         "opus": "vi",
@@ -49,6 +96,16 @@ MIXED_LANGUAGE_CONFIGS = {
         "opus": "si",
         "nllb": "sin_Sinh",
         "names": ("si", "sin", "sinhala", "sinhalese"),
+    },
+    "yo": {
+        "opus": "yo",
+        "nllb": "yor_Latn",
+        "names": ("yo", "yor", "yoruba", "yorùbá"),
+    },
+    "zu": {
+        "opus": "zu",
+        "nllb": "zul_Latn",
+        "names": ("zu", "zul", "zulu", "isizulu"),
     },
 }
 
@@ -68,6 +125,34 @@ MIXED_SOURCE_SPECS = {
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
         {"name": "nusax_mt", "weight": 0.10, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
     ],
+    "bn": [
+        {"name": "samanantar", "weight": 0.55, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.30, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+    ],
+    "hu": [
+        {"name": "opus100", "weight": 0.50, "kind": "opus100"},
+        {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+    ],
+    "kn": [
+        {"name": "samanantar", "weight": 0.60, "kind": "generic", "path": "ai4bharat/samanantar", "config": "kn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+    ],
+    "ky": [
+        {"name": "nllb", "weight": 0.70, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.30, "kind": "opus100"},
+    ],
+    "ne": [
+        {"name": "nllb", "weight": 0.45, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.30, "kind": "opus100"},
+        {"name": "eng2nep", "weight": 0.25, "kind": "generic", "path": "momo22/eng2nep", "source_field": "English", "target_field": "Nepali"},
+    ],
+    "te": [
+        {"name": "samanantar", "weight": 0.60, "kind": "generic", "path": "ai4bharat/samanantar", "config": "te", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+    ],
     "vi": [
         {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "mtet", "weight": 0.35, "kind": "generic", "path": "hiimbach/mtet", "split": "train",},
@@ -76,6 +161,15 @@ MIXED_SOURCE_SPECS = {
     "si": [
         {"name": "nllb", "weight": 0.75, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.25, "kind": "opus100"},
+    ],
+    "yo": [
+        {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "afrinllb", "weight": 0.30, "kind": "generic", "path": "AfriNLP/AfriNLLB-train", "source_field": "source", "target_field": "target", "source_lang_field": "src_lang", "source_lang": "eng_Latn", "target_lang_field": "tgt_lang", "target_lang": "yor_Latn"},
+        {"name": "opus100", "weight": 0.20, "kind": "opus100"},
+    ],
+    "zu": [
+        {"name": "afrinllb", "weight": 0.70, "kind": "generic", "path": "AfriNLP/AfriNLLB-train", "source_field": "source", "target_field": "target", "source_lang_field": "src_lang", "source_lang": "eng_Latn", "target_lang_field": "tgt_lang", "target_lang": "zul_Latn"},
+        {"name": "opus100", "weight": 0.30, "kind": "opus100"},
     ],
 }
 
@@ -206,6 +300,16 @@ def _extract_parallel_pair(
     language_config: Dict[str, Any],
     spec: Dict[str, Any],
 ) -> Tuple[Optional[str], Optional[str]]:
+    source_lang_field = spec.get("source_lang_field")
+    source_lang = spec.get("source_lang")
+    if source_lang_field and source_lang and example.get(source_lang_field) != source_lang:
+        return None, None
+
+    target_lang_field = spec.get("target_lang_field")
+    target_lang = spec.get("target_lang")
+    if target_lang_field and target_lang and example.get(target_lang_field) != target_lang:
+        return None, None
+
     source_field = spec.get("source_field")
     target_field = spec.get("target_field")
     if source_field and target_field:

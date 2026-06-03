@@ -5,6 +5,8 @@ from tqdm import tqdm
 import numpy as np
 import json, gc, os, re
 from itertools import combinations
+from pathlib import Path
+import sys
 import models
 from utils import MGSMINSTRUCT_LANGUAGES
 from argparse import ArgumentParser
@@ -57,6 +59,11 @@ MODEL_CONFIGS = {
     "marco": [24, 256, 8, {}]
 }
 DATA_FOLDER = "/data2/lucasbandarkar/moe/collected_routing_data/"
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LANGUAGE_EVALS_DIR = REPO_ROOT / "language_evals"
+if str(LANGUAGE_EVALS_DIR) not in sys.path:
+    sys.path.append(str(LANGUAGE_EVALS_DIR))
 
 class RunnerByDataset:
     def __init__(self, language_codes):
@@ -379,14 +386,37 @@ def get_arguments(args):
         3: "total_actual_weight",
     }
     mode = mode_map[args.mode]
-    model_name = NICKNAME_TO_MODEL_MAP[args.nickname]
+    model_name = get_model_name(args)
     return langcodes, mode, model_name
+
+def get_model_name(args):
+    base_model = NICKNAME_TO_MODEL_MAP[args.nickname]
+    if not args.trained_ckpt:
+        return base_model
+
+    from export_fsdp_checkpoint import maybe_export_fsdp_checkpoint
+
+    checkpoint_path = maybe_export_fsdp_checkpoint(args.trained_ckpt, base_model=base_model)
+    print(f"Loading trained checkpoint from {checkpoint_path}")
+    return checkpoint_path
+
+def get_output_suffix(args):
+    if not args.trained_ckpt:
+        return args.nickname
+
+    checkpoint_path = Path(args.trained_ckpt).resolve()
+    if checkpoint_path.name.startswith("checkpoint-"):
+        suffix = f"{checkpoint_path.parent.name}_{checkpoint_path.name}"
+    else:
+        suffix = checkpoint_path.name
+    return f"{args.nickname}_{suffix}"
 
 def main(args):
     language_codes, mode, model_name = get_arguments(args)
+    output_suffix = get_output_suffix(args)
 
     # check if requested data has already been collected for certain languages
-    preexisting_results = fetch_preexisting_results(args.dataset, args.nickname, mode)
+    preexisting_results = fetch_preexisting_results(args.dataset, output_suffix, mode)
     if preexisting_results:
         evaluated_languages = set(preexisting_results.keys())
         print(f"Languages already evaluated: {evaluated_languages}")
@@ -421,17 +451,18 @@ def main(args):
     elif mode == "total_actual_weight":
         data = calculate_total_actual_weight_per_sequence(router_weights, args.nickname)
 
-    dump_data_to_json(data, preexisting_results, len(language_codes), args.dataset, args.nickname, mode)
+    dump_data_to_json(data, preexisting_results, len(language_codes), args.dataset, output_suffix, mode)
 
 
 ## Example call: python get_routing_weights.py -m mixtral -g 0,1 -t 0 -d mgsminstruct
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('-m', '--nickname', type=str, default="qwen3_30b", help="the nickname of the model with which to name files")
+    parser.add_argument('-m', '--nickname', type=str, required=True, help="the nickname of the model with which to name files and select model configs")
     parser.add_argument('-l', '--languages', type=int, help="the number of languages to evaluate")
     parser.add_argument('-g', '--gpus', type=str, default="6,7", help="the comma-separated list of gpus to evaluate on")
     parser.add_argument('-t', '--mode', type=int, help="code for data to collect 0: expert importance, 1: last token, 2: activation counts, 3: total_actual_weight")
     parser.add_argument('-d', '--dataset', type=str, default='flores', help="flores (max 15 langs) or mgsminstruct (max 10 langs)")
+    parser.add_argument('--trained_ckpt', type=str, default=None, help="contrastive_training output dir or checkpoint-NNN dir to load instead of the base HF model")
     args = parser.parse_args()
     main(args)
     

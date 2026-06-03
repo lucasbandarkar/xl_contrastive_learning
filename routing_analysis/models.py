@@ -1,4 +1,5 @@
 import torch
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import transformers
 # from .modeling.modeling_kimi import KimiLinearForCausalLM
@@ -37,14 +38,14 @@ def patch_granite_router_logits_class():
 class MoeModel:
     def __init__(self, model_name: str):
         self.model_name = model_name
+        use_remote_code = os.path.isdir(model_name)
         if "granite-4.0-h" in model_name.lower():
             patch_granite_router_logits_class()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if ("llada" in model_name.lower()) or ("Kimi" in model_name):
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=use_remote_code)
 
         if ("deepseek" in model_name) or ("llada" in model_name.lower()):
             self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", device_map="auto", trust_remote_code=True)
@@ -55,7 +56,7 @@ class MoeModel:
         #         trust_remote_code=True, attn_implementation="kernels-community/flash-attn2"
         #     )
         else:
-            self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", device_map="auto")
+            self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", device_map="auto", trust_remote_code=use_remote_code)
         
         if "Kimi" in model_name:
             self.num_experts_activated = self.model.config.num_experts_per_token

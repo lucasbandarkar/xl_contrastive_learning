@@ -1,5 +1,16 @@
 {
-    "qwen35_35b": {},
+    "qwen35": {
+        "auto_find_batch_size": true
+    },
+    "gpt": {
+        "auto_find_batch_size": false,
+        "batch_sizes_by_gpus": {
+            "full": {
+                "3": 12,
+                "4": 32
+            }
+        }
+    },
     "phi-tiny": {
         "auto_find_batch_size": true
     },

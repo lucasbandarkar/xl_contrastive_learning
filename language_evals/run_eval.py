@@ -115,7 +115,13 @@ class VLLMWrapper:
             return self._sampling_params_cls(**kwargs)
         raise RuntimeError("SamplingParams class not available.")
 
-def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel_size: int = 1) -> VLLMWrapper:
+
+def build_vllm_wrapper(
+    model_path: str,
+    needs_direct_vllm: bool,
+    tensor_parallel_size: int = 1,
+    max_model_len: int = 4096,
+) -> VLLMWrapper:
     apply_phimoe_patch = os.environ.get("APPLY_VLLM_PHIMOE_PATCH", "1") != "0"
     if apply_phimoe_patch:
         print("Applying vLLM PhiMoE patch because APPLY_VLLM_PHIMOE_PATCH=1.")
@@ -123,13 +129,14 @@ def build_vllm_wrapper(model_path: str, needs_direct_vllm: bool, tensor_parallel
         apply_vllm_phimoe_patch(model_path)
 
     lm_eval_model_cls = get_model("vllm")
+
     
     vllm_kwargs = {
         "pretrained": model_path,
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": True,
         "enable_thinking": True,
-        "max_model_len": 4096,  # this should be way more than enough
+        "max_model_len": max_model_len,
         # "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
     }
 
@@ -164,10 +171,16 @@ def evaluate_model(
     tensor_parallel_size: int = 1,
     debug_single_task: bool = False,
 ):
+    max_model_len = 4096
+    if "te" in selected_languages:
+        max_model_len = 5000
+        print(f"Using max_model_len={max_model_len} for languages: {selected_languages}")
+
     vllm_wrapper = build_vllm_wrapper(
         model_path,
         needs_direct_vllm="multiloko" in selected_tasks,
         tensor_parallel_size=tensor_parallel_size,
+        max_model_len=max_model_len,
     )
 
     output_dir = Path(__file__).resolve().parent / "results" / run_name

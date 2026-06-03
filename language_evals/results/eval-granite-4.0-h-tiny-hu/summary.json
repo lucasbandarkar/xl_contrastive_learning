@@ -1,0 +1,23 @@
+{
+    "belebele": {
+        "belebele_hun_Latn": 0.618
+    },
+    "flores": {
+        "hu": 25.083
+    },
+    "global_piqa": {
+        "global_piqa_completions_hun_latn": 0.6
+    },
+    "include": {
+        "include_base_44_hungarian": 0.405,
+        "include_base_44_hungarian_few_shot_og_applied_science": 0.399,
+        "include_base_44_hungarian_few_shot_og_social_science": 0.446,
+        "include_base_44_hungarian_few_shot_og_stem": 0.2
+    },
+    "mgsm": {
+        "hu": 0.16
+    },
+    "mmlu_prox": {
+        "mmlu_prox_hu": 0.03732162458836443
+    }
+}

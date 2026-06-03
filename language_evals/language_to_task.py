@@ -16,6 +16,11 @@ LANGUAGE_TO_TASK = {
     "th": ["belebele", "mgsm", "mmlu_prox", "flores", "multiloko", "global_piqa"],
     "ky": ["belebele", "mgsm", "flores", "global_piqa"],
     "kn": ["belebele", "mgsm", "flores", "global_piqa"],
+    "zu": ["belebele", "mgsm", "mmlu_prox", "flores", "global_piqa"],
+    "yo": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "global_piqa"],
+    "ne": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "include", "global_piqa"],
+    "hu": ["belebele", "mgsm", "mmlu_prox", "flores", "include", "global_piqa"],
+    "te": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "include", "global_piqa"],
     # all 8
     "bn": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "fr": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
@@ -36,6 +41,11 @@ FLORES_LANGCODE_MAP = {
     "vi": "vie_Latn",
     "ky": "kir_Cyrl",
     "kn": "kan_Knda",
+    "zu": "zul_Latn",
+    "yo": "yor_Latn",
+    "ne": "npi_Deva",
+    "hu": "hun_Latn",
+    "te": "tel_Telu",
 }
 
 FLORES_TARGET_LANGUAGE_NAMES = {
@@ -50,6 +60,11 @@ FLORES_TARGET_LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "ky": "Kyrgyz, written in Cyrillic script",
     "kn": "Kannada, written in Kannada script",
+    "zu": "Zulu",
+    "yo": "Yoruba",
+    "ne": "Nepali, written in Devanagari script",
+    "hu": "hun_Latn",
+    "te": "Telugu, written in Telugu script",
 }
 
 CODE_TO_INCLUDE_NAME = {
@@ -61,6 +76,9 @@ CODE_TO_INCLUDE_NAME = {
     "id": "Indonesian",
     "th": "Thai",
     "vi": "Vietnamese",
+    "ne": "Nepali",
+    "hu": "Hungarian",
+    "te": "Telugu",
 }
 
 CODE_TO_MULTILOKO_NAME = {
