@@ -18,6 +18,23 @@ POSSIBLE_ROUTER_NAMES = [
 
 
 class FreezableTrainerMixin:
+    def _save(self, output_dir: Optional[str] = None, state_dict: Optional[dict] = None) -> None:
+        if getattr(getattr(self.model, "config", None), "model_type", None) != "gpt_oss":
+            return super()._save(output_dir=output_dir, state_dict=state_dict)
+
+        original_save_pretrained = self.model.save_pretrained
+
+        def save_pretrained_in_transformers_format(*args, **kwargs):
+            # GPT-OSS has a Transformers save bug when converting back to the original checkpoint format.
+            kwargs["save_original_format"] = False
+            return original_save_pretrained(*args, **kwargs)
+
+        self.model.save_pretrained = save_pretrained_in_transformers_format
+        try:
+            return super()._save(output_dir=output_dir, state_dict=state_dict)
+        finally:
+            delattr(self.model, "save_pretrained")
+
     def print_trainable_params(self):
         trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.model.parameters())
