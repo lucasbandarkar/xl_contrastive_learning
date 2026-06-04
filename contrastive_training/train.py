@@ -14,6 +14,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from collections import Counter
 import huggingface_hub
 
 TRACKED_TRAINING_ARG_NAMES = (
@@ -78,7 +79,7 @@ def create_training_args(
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler,
         warmup_steps=warmup_steps,
-        neftune_noise_alpha=None if partial_training or freezing_mode == 1 else 5.0,
+        # neftune_noise_alpha=None if partial_training or freezing_mode == 1 else 5.0,
         # max_grad_norm=0.0, # FSDP2 requires disabling to 0.0 to prevent "RuntimeError: No backend type associated with device type cpu"
         max_grad_norm=1.0, # ok if using FSDP1
         adam_beta2=0.99, # default value is 0.999
@@ -123,6 +124,14 @@ def build_training_metadata(
         "total_flos": train_metrics.get("total_flos"),
     }
 
+    def dataset_composition(dataset):
+        composition = {}
+        if hasattr(dataset, "column_names") and "source_name" in dataset.column_names:
+            composition["source_counts"] = dict(Counter(dataset["source_name"]))
+        if hasattr(dataset, "column_names") and "example_type" in dataset.column_names:
+            composition["example_type_counts"] = dict(Counter(dataset["example_type"]))
+        return composition
+
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "run": {"output_dir_name": output_dir_name, "resume_from_checkpoint": args.resume_training},
@@ -136,6 +145,8 @@ def build_training_metadata(
             "target_key": key_tgt,
             "train_size": len(dataset_train),
             "valid_size": len(dataset_valid),
+            "train_composition": dataset_composition(dataset_train),
+            "valid_composition": dataset_composition(dataset_valid),
         },
         "training_mode": {
             "baseline": args.baseline,

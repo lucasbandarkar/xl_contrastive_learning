@@ -1,3 +1,4 @@
+import json
 from datasets import Dataset, load_dataset
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -116,19 +117,22 @@ NLLB_SOURCE_FIELDS = {
 
 MIXED_SOURCE_SPECS = {
     "fa": [
-        {"name": "nllb", "weight": 0.55, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.25, "kind": "opus100"},
-        {"name": "english_persian_parallel", "weight": 0.20, "kind": "generic", "path": "shenasa/English-Persian-Parallel-Dataset", "split": "train", "two_column_order": "en-tgt",},
-    ],
-    "id": [
-        {"name": "nllb", "weight": 0.65, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.25, "kind": "opus100"},
-        {"name": "nusax_mt", "weight": 0.10, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
-    ],
-    "bn": [
-        {"name": "samanantar", "weight": 0.55, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
         {"name": "nllb", "weight": 0.30, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+        {"name": "english_persian_parallel", "weight": 0.15, "kind": "generic", "path": "shenasa/English-Persian-Parallel-Dataset", "split": "train", "two_column_order": "en-tgt",},
+    ],
+    "id": [
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "nllb", "weight": 0.39, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+        {"name": "nusax_mt", "weight": 0.06, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
+    ],
+    "bn": [
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "samanantar", "weight": 0.35, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.20, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "hu": [
         {"name": "opus100", "weight": 0.50, "kind": "opus100"},
@@ -144,23 +148,27 @@ MIXED_SOURCE_SPECS = {
         {"name": "opus100", "weight": 0.30, "kind": "opus100"},
     ],
     "ne": [
-        {"name": "nllb", "weight": 0.45, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.30, "kind": "opus100"},
-        {"name": "eng2nep", "weight": 0.25, "kind": "generic", "path": "momo22/eng2nep", "source_field": "English", "target_field": "Nepali"},
-    ],
-    "te": [
-        {"name": "samanantar", "weight": 0.60, "kind": "generic", "path": "ai4bharat/samanantar", "config": "te", "source_field": "src", "target_field": "tgt"},
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
         {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+        {"name": "eng2nep", "weight": 0.20, "kind": "generic", "path": "momo22/eng2nep", "source_field": "English", "target_field": "Nepali"},
+    ],
+    "te": [
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "samanantar", "weight": 0.40, "kind": "generic", "path": "ai4bharat/samanantar", "config": "te", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.15, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "vi": [
-        {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "mtet", "weight": 0.35, "kind": "generic", "path": "hiimbach/mtet", "split": "train",},
-        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+        {"name": "mtet", "weight": 0.30, "kind": "generic", "path": "hiimbach/mtet", "split": "train",},
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "si": [
-        {"name": "nllb", "weight": 0.75, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.25, "kind": "opus100"},
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "nllb", "weight": 0.45, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
     ],
     "yo": [
         {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
@@ -175,6 +183,10 @@ MIXED_SOURCE_SPECS = {
 
 ENGLISH_FIELD_NAMES = ("en", "eng", "eng_Latn", "english")
 NLLB_ENGLISH_BITEXT_DATASET = "hotchpotch/nllb-english-bitext-hq"
+BACTRIAN_X_DATASET = "MBZUAI/Bactrian-X"
+BACTRIAN_X_DATA_PATH_TEMPLATE = "hf://datasets/MBZUAI/Bactrian-X/data/{language}.json.gz"
+
+_BACTRIAN_X_ENGLISH_BY_ID: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 def opus_language_code(language: str) -> str:
@@ -253,6 +265,115 @@ def _clean_parallel_text(text: Any) -> Optional[str]:
     if len(text) < 2 or len(text) > 2000:
         return None
     return text
+
+
+def _clean_sft_text(text: Any) -> Optional[str]:
+    if not isinstance(text, str):
+        return None
+
+    text = " ".join(text.split())
+    if len(text) < 1:
+        return None
+    return text
+
+
+def _normalize_messages(messages: Any) -> Optional[List[Dict[str, str]]]:
+    if isinstance(messages, str):
+        try:
+            messages = json.loads(messages)
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(messages, list):
+        return None
+
+    normalized = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        content = message.get("content")
+        if not isinstance(role, str) or not isinstance(content, str):
+            continue
+        role = role.strip().lower()
+        content = content.strip()
+        if role not in {"system", "user", "assistant"} or not content:
+            continue
+        normalized.append({"role": role, "content": content})
+
+    if not any(message["role"] == "assistant" for message in normalized):
+        return None
+    return normalized
+
+
+def _messages_to_plain_text(messages: List[Dict[str, str]]) -> str:
+    return "\n".join(f"{message['role']}: {message['content']}" for message in messages)
+
+
+def _load_feature_messages(value):
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value
+    return json.loads(value)
+
+
+def format_feature_text(feature, language_key, side, tokenizer):
+    messages = _load_feature_messages(feature.get(f"messages_{side}_json"))
+    if messages:
+        if getattr(tokenizer, "chat_template", None) and hasattr(tokenizer, "apply_chat_template"):
+            return tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+        return _messages_to_plain_text(messages)
+
+    return feature["translation"][language_key]
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _build_bactrianx_messages(example: Dict[str, Any]) -> Optional[List[Dict[str, str]]]:
+    instruction = _clean_sft_text(example.get("instruction"))
+    output = _clean_sft_text(example.get("output"))
+    if not instruction or not output:
+        return None
+
+    user_content = instruction
+    input_text = _clean_sft_text(example.get("input"))
+    if input_text:
+        user_content = f"{instruction}\n\n{input_text}"
+
+    return [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": output},
+    ]
+
+
+def _make_dataset_example(
+    *,
+    src_text: str,
+    tgt_text: str,
+    language_config: Dict[str, Any],
+    source_name: str,
+    example_type: str,
+    messages_src: Optional[List[Dict[str, str]]] = None,
+    messages_tgt: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
+    return {
+        "translation": {
+            "en": src_text,
+            language_config["opus"]: tgt_text,
+        },
+        "example_type": example_type,
+        "source_name": source_name,
+        "messages_src_json": _json_dumps(messages_src) if messages_src else None,
+        "messages_tgt_json": _json_dumps(messages_tgt) if messages_tgt else None,
+    }
 
 
 def _lang_label_matches(label: Any, candidates: Iterable[str]) -> bool:
@@ -373,12 +494,13 @@ def _format_parallel_example(
     if not src or not tgt or src == tgt:
         return None
 
-    return {
-        "translation": {
-            "en": src,
-            language_config["opus"]: tgt,
-        }
-    }
+    return _make_dataset_example(
+        src_text=src,
+        tgt_text=tgt,
+        language_config=language_config,
+        source_name=spec["name"],
+        example_type="parallel_text",
+    )
 
 
 def _source_dataset_stream(spec: Dict[str, Any], language_config: Dict[str, Any]):
@@ -410,6 +532,86 @@ def _source_dataset_stream(spec: Dict[str, Any], language_config: Dict[str, Any]
     raise ValueError(f"Unknown mixed-parallel source kind '{kind}'")
 
 
+def _format_bactrianx_sft_example(
+    src_example: Dict[str, Any],
+    tgt_example: Dict[str, Any],
+    language_config: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    if src_example.get("id") != tgt_example.get("id"):
+        return None
+
+    messages_src = _build_bactrianx_messages(src_example)
+    messages_tgt = _build_bactrianx_messages(tgt_example)
+    if not messages_src or not messages_tgt:
+        return None
+
+    return _make_dataset_example(
+        src_text=_messages_to_plain_text(messages_src),
+        tgt_text=_messages_to_plain_text(messages_tgt),
+        language_config=language_config,
+        source_name="bactrianx_sft",
+        example_type="sft_parallel",
+        messages_src=messages_src,
+        messages_tgt=messages_tgt,
+    )
+
+
+def _get_bactrianx_english_by_id() -> Dict[str, Dict[str, Any]]:
+    global _BACTRIAN_X_ENGLISH_BY_ID
+    if _BACTRIAN_X_ENGLISH_BY_ID is None:
+        english_by_id = {}
+        english_stream = load_dataset(
+            "json",
+            data_files=BACTRIAN_X_DATA_PATH_TEMPLATE.format(language="en"),
+            split="train",
+            streaming=True,
+        )
+        for example in english_stream:
+            example_id = example.get("id")
+            if isinstance(example_id, str):
+                english_by_id[example_id] = example
+        _BACTRIAN_X_ENGLISH_BY_ID = english_by_id
+    return _BACTRIAN_X_ENGLISH_BY_ID
+
+
+def _collect_bactrianx_sft_examples(
+    language_config: Dict[str, Any],
+    requested_count: int,
+    seen_pairs: set,
+) -> List[Dict[str, Any]]:
+    if requested_count <= 0:
+        return []
+
+    collected = []
+    english_by_id = _get_bactrianx_english_by_id()
+    tgt_stream = load_dataset(
+        "json",
+        data_files=BACTRIAN_X_DATA_PATH_TEMPLATE.format(language=language_config["opus"]),
+        split="train",
+        streaming=True,
+    )
+
+    for tgt_raw in tgt_stream:
+        src_raw = english_by_id.get(tgt_raw.get("id"))
+        if src_raw is None:
+            continue
+        example = _format_bactrianx_sft_example(src_raw, tgt_raw, language_config)
+        if example is None:
+            continue
+
+        translation = example["translation"]
+        pair_key = (example["source_name"], translation["en"], translation[language_config["opus"]])
+        if pair_key in seen_pairs:
+            continue
+
+        seen_pairs.add(pair_key)
+        collected.append(example)
+        if len(collected) >= requested_count:
+            break
+
+    return collected
+
+
 def _collect_examples_from_source(
     spec: Dict[str, Any],
     language_config: Dict[str, Any],
@@ -419,6 +621,9 @@ def _collect_examples_from_source(
     if requested_count <= 0:
         return []
 
+    if spec["kind"] == "bactrianx_sft":
+        return _collect_bactrianx_sft_examples(language_config, requested_count, seen_pairs)
+
     collected = []
     stream = _source_dataset_stream(spec, language_config)
     for raw_example in stream:
@@ -427,7 +632,7 @@ def _collect_examples_from_source(
             continue
 
         translation = example["translation"]
-        pair_key = (translation["en"], translation[language_config["opus"]])
+        pair_key = (example["source_name"], translation["en"], translation[language_config["opus"]])
         if pair_key in seen_pairs:
             continue
 
@@ -460,11 +665,14 @@ def _fill_missing_examples(
     language_config: Dict[str, Any],
     seen_pairs: set,
     loaded_counts: Dict[str, int],
+    requested_counts: Dict[str, int],
 ) -> None:
     for spec in candidate_specs:
         missing = target_count - len(examples)
         if missing <= 0:
             return
+        if loaded_counts.get(spec["name"], 0) < requested_counts.get(spec["name"], 0):
+            continue
 
         try:
             extra_examples = _collect_examples_from_source(spec, language_config, missing, seen_pairs)
@@ -513,6 +721,10 @@ def _load_streamed_parallel_sources(
         loaded_counts[spec["name"]] = len(examples)
 
     refill_specs = [spec for spec in specs if loaded_counts.get(spec["name"], 0) > 0]
+    requested_counts = {
+        spec["name"]: train_counts[spec["name"]] + valid_counts[spec["name"]]
+        for spec in specs
+    }
     for examples, target_count in ((train_examples, train_limit), (valid_examples, valid_limit)):
         _fill_missing_examples(
             examples,
@@ -521,6 +733,7 @@ def _load_streamed_parallel_sources(
             language_config,
             seen_pairs,
             loaded_counts,
+            requested_counts,
         )
 
     if not train_examples:

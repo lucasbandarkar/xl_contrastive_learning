@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 
 from dataset_helpers import (
     detect_mgsm_language,
+    format_feature_text,
     format_translation_sft_batch,
     load_mixed_parallel_dataset,
     opus_language_code,
@@ -43,9 +44,14 @@ class ParallelDataCollator:
                                      - 'input_ids_tgt': Token IDs for target language sentences.
                                      - 'attention_mask_tgt': Attention masks for target sentences.
         """
-        # Extract both language's sentences from the batch features using the language keys passed into the constructor
-        src_sentences = [feature["translation"][self.src_key] for feature in features]
-        tgt_sentences = [feature["translation"][self.tgt_key] for feature in features]
+        src_sentences = [
+            format_feature_text(feature, self.src_key, "src", self.tokenizer)
+            for feature in features
+        ]
+        tgt_sentences = [
+            format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
+            for feature in features
+        ]
 
         # Tokenize both together to ensure they are padded to the same maximum length.
         # This allows us to concatenate them along the batch dimension later.
@@ -83,7 +89,10 @@ class TargetLanguageCausalLMCollator:
         self.max_length = max_length
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        tgt_sentences = [feature["translation"][self.tgt_key] for feature in features]
+        tgt_sentences = [
+            format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
+            for feature in features
+        ]
         batch = self.tokenizer(
             tgt_sentences,
             padding=True,

@@ -1,0 +1,14 @@
+{
+    "belebele": {
+        "belebele_kan_Knda": 0.239
+    },
+    "flores": {
+        "kn": 0.082
+    },
+    "global_piqa": {
+        "global_piqa_completions_kan_knda": 0.53
+    },
+    "mgsm": {
+        "kn": 0.0
+    }
+}
