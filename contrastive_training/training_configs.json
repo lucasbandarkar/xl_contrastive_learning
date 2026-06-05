@@ -1,6 +1,11 @@
 {
-    "qwen35": {
-        "auto_find_batch_size": true
+    "qwen3": {
+        "auto_find_batch_size": false,
+        "batch_sizes_by_gpus": {
+            "full": {
+                "4": 16
+            }
+        }
     },
     "gpt": {
         "auto_find_batch_size": false,

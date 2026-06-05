@@ -17,6 +17,7 @@ NICKNAME_TO_MODEL_MAP = {
     # "moonlight": "moonshotai/Moonlight-16B-A3B-Instruct", # WASNT WORKING (too complicated to get Deepseek remote code to work)
     "gpt": "openai/gpt-oss-20b",
     "qwen35": "Qwen/Qwen3.5-35B-A3B",
+    "qwen3": "Qwen/Qwen3-30B-A3B",
     "nemotron": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8", # transformers doesn't have output_router_logits implemented
     # "kimi": "moonshotai/Kimi-Linear-48B-A3B-Instruct", # doesn't have output_router_logits enabled
     # "llada": "inclusionAI/LLaDA2.1-mini",
