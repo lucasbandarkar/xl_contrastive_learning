@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Historical name, revived for the Global-MGSM prompt/stop-sequence fix.
-# Run from language_evals/ as: z_deprecated/rerun_flores_once.sh
-# Scans results/*/summary.json, reruns only MGSM, and
-# replaces just the existing "mgsm" entry. Files with suffixes such as
-# summary_at240k.json are intentionally ignored.
+# Rerun MMLU-ProX for Vietnamese and Hungarian granite runs and replace only the
+# existing "mmlu_prox" entry in each final summary.json.
+#
+# Run from language_evals/ as:
+#   z_deprecated/rerun_granite_vi_mmlu_prox_once.sh
+#
+# Optional env:
+#   GPU_ID=0
+#   CHECKPOINT_ROOT=/data2/lucasbandarkar/checkpoints
+#   DRY_RUN=1
+#   STRICT_MISSING_CHECKPOINT=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LANGUAGE_EVALS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESULTS_DIR="$LANGUAGE_EVALS_DIR/results"
 CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-/data2/lucasbandarkar/checkpoints}"
-GPU_ID="${GPU_ID:-0}"
+GPU_ID="${GPU_ID:-2}"
 DRY_RUN="${DRY_RUN:-0}"
 STRICT_MISSING_CHECKPOINT="${STRICT_MISSING_CHECKPOINT:-0}"
 
@@ -80,35 +86,23 @@ from pathlib import Path
 results_dir = Path(sys.argv[1])
 checkpoint_root = Path(sys.argv[2])
 
-sys.path.insert(0, str(results_dir.parent))
-from language_to_task import LANGUAGE_TO_TASK  # noqa: E402
-
 hf_models = {
-    "ERNIE-4.5-21B-A3B-PT": "baidu/ERNIE-4.5-21B-A3B-PT",
-    "gpt-oss-20b": "openai/gpt-oss-20b",
-    "Ling-mini-2.0": "inclusionAI/Ling-mini-2.0",
-    "Phi-mini-MoE-instruct": "microsoft/Phi-mini-MoE-instruct",
-    "Phi-tiny-MoE-instruct": "microsoft/Phi-tiny-MoE-instruct",
-    "Qwen3.5-35B-A3B": "Qwen/Qwen3.5-35B-A3B",
     "granite-4.0-h-tiny": "ibm-granite/granite-4.0-h-tiny",
 }
 
-langcodes = sorted(LANGUAGE_TO_TASK, key=len, reverse=True)
+target_langs = {"vi", "hu"}
 
-for summary_path in sorted(results_dir.glob("*/summary.json")):
+for summary_path in sorted(results_dir.glob("eval-granite*/summary.json")):
     try:
         summary = json.loads(summary_path.read_text())
     except Exception as exc:
         print(f"BAD_JSON\t{summary_path}\t{exc}", file=sys.stderr)
         continue
 
-    if "flores" not in summary:
+    if "mmlu_prox" not in summary:
         continue
 
     result_dir = summary_path.parent.name
-    if not (result_dir.startswith("eval-gpt-") or result_dir.startswith("eval-gpt_")):
-        continue
-
     if not result_dir.startswith("eval-"):
         print(f"UNPARSEABLE\t{summary_path}\tmissing eval- prefix", file=sys.stderr)
         continue
@@ -116,7 +110,7 @@ for summary_path in sorted(results_dir.glob("*/summary.json")):
     stem = result_dir.removeprefix("eval-")
     model_leaf = None
     lang = None
-    for candidate in langcodes:
+    for candidate in sorted(target_langs, key=len, reverse=True):
         suffix = f"-{candidate}"
         if stem.endswith(suffix):
             model_leaf = stem[:-len(suffix)]
@@ -124,7 +118,6 @@ for summary_path in sorted(results_dir.glob("*/summary.json")):
             break
 
     if model_leaf is None or lang is None:
-        print(f"UNPARSEABLE\t{summary_path}\tcould not infer language", file=sys.stderr)
         continue
 
     if model_leaf in hf_models:
@@ -132,18 +125,14 @@ for summary_path in sorted(results_dir.glob("*/summary.json")):
         status = "available"
     else:
         checkpoint = checkpoint_root / model_leaf
-        if checkpoint.is_dir():
-            model = str(checkpoint)
-            status = "available"
-        else:
-            model = str(checkpoint)
-            status = "missing_checkpoint"
+        model = str(checkpoint)
+        status = "available" if checkpoint.is_dir() else "missing_checkpoint"
 
     print("\t".join([str(summary_path), model_leaf, lang, model, status]))
 PY
 }
 
-merge_flores_summary() {
+merge_mmlu_prox_summary() {
   local original_summary="$1"
   local task_summary="$2"
 
@@ -158,19 +147,19 @@ task_path = Path(sys.argv[2])
 original = json.loads(original_path.read_text())
 task_only = json.loads(task_path.read_text())
 
-if "flores" not in task_only:
-    raise SystemExit(f"{task_path} does not contain a 'flores' key")
+if "mmlu_prox" not in task_only:
+    raise SystemExit(f"{task_path} does not contain an 'mmlu_prox' key")
 
-old_value = original.get("flores")
-original["flores"] = task_only["flores"]
+old_value = original.get("mmlu_prox")
+original["mmlu_prox"] = task_only["mmlu_prox"]
 
 with original_path.open("w") as f:
     json.dump(original, f, indent=4, ensure_ascii=False)
     f.write("\n")
 
 print(f"Updated {original_path}")
-print(f"  old flores: {old_value}")
-print(f"  new flores: {original['flores']}")
+print(f"  old mmlu_prox: {old_value}")
+print(f"  new mmlu_prox: {original['mmlu_prox']}")
 PY
 }
 
@@ -179,7 +168,7 @@ cd "$LANGUAGE_EVALS_DIR"
 while IFS=$'\t' read -r summary_path model_leaf lang model status; do
   [[ -n "${summary_path:-}" ]] || continue
 
-  tmp_run_name="eval-${model_leaf}-${lang}-flores-refresh"
+  tmp_run_name="eval-${model_leaf}-${lang}-mmlu-prox-refresh"
   tmp_dir="$RESULTS_DIR/$tmp_run_name"
   tmp_summary="$tmp_dir/summary.json"
 
@@ -188,6 +177,7 @@ while IFS=$'\t' read -r summary_path model_leaf lang model status; do
   echo "Summary: $summary_path"
   echo "Model:   $model"
   echo "Lang:    $lang"
+  echo "Task:    mmlu_prox"
   echo "Status:  $status"
   echo "============================================================"
 
@@ -196,16 +186,12 @@ while IFS=$'\t' read -r summary_path model_leaf lang model status; do
       echo "Checkpoint directory does not exist: $model" >&2
       exit 1
     fi
-    if [[ "$DRY_RUN" == "1" ]]; then
-      echo "DRY_RUN=1 would skip missing checkpoint for $summary_path"
-    else
-      echo "Skipping missing checkpoint for $summary_path: $model" >&2
-    fi
+    echo "Skipping missing checkpoint: $model"
     continue
   fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "DRY_RUN=1 would rerun FLORES and merge into $summary_path"
+    echo "DRY_RUN=1 would rerun MMLU-ProX and merge into $summary_path"
     continue
   fi
 
@@ -214,20 +200,20 @@ while IFS=$'\t' read -r summary_path model_leaf lang model status; do
   "${python_cmd[@]}" "$LANGUAGE_EVALS_DIR/run_eval.py" \
     --model_name "$model" \
     --language "$lang" \
-    --task flores \
+    --task mmlu_prox \
     --run_name "$tmp_run_name" \
     --tensor_parallel_size "$GPU_COUNT" \
     --no_debug_samples
 
   if [[ ! -f "$tmp_summary" ]]; then
-    echo "Missing temporary FLORES summary: $tmp_summary" >&2
+    echo "Missing temporary MMLU-ProX summary: $tmp_summary" >&2
     exit 1
   fi
 
-  merge_flores_summary "$summary_path" "$tmp_summary"
+  merge_mmlu_prox_summary "$summary_path" "$tmp_summary"
   rm -rf "$tmp_dir"
   echo "Deleted temporary folder: $tmp_dir"
 done < <(discover_targets)
 
 echo
-echo "FLORES refresh complete."
+echo "Granite Vietnamese/Hungarian MMLU-ProX refresh complete."

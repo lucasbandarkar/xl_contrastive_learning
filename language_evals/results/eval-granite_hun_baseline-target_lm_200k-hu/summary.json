@@ -18,7 +18,7 @@
         "hu": 0.356
     },
     "mmlu_prox": {
-        "mmlu_prox_hu": 0.0021953896816684962
+        "mmlu_prox_hu": 0.0570801317233809
     },
     "training_metadata": {
         "created_at_utc": "2026-06-03T15:08:43.734469+00:00",

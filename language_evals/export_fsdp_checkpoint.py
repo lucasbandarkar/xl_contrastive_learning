@@ -19,6 +19,8 @@ FSDP_BASE_MODEL_HINTS = {
     "gpt": "openai/gpt-oss-20b",
     "qwen35": "Qwen/Qwen3.5-35B-A3B",
     "qwen3.5": "Qwen/Qwen3.5-35B-A3B",
+    "qwen": "Qwen/Qwen3-30B-A3B",
+    "qwen3": "Qwen/Qwen3-30B-A3B",
     "ling": "inclusionAI/Ling-mini-2.0",
 }
 
@@ -73,6 +75,7 @@ def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
 
 def normalize_exported_config_for_vllm(output_dir: Path):
     normalize_gpt_oss_dequantized_config_for_vllm(output_dir)
+    normalize_qwen3_moe_experts_for_vllm(output_dir)
 
 
 def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
@@ -207,6 +210,145 @@ def normalize_gpt_oss_dequantized_config_for_vllm(output_dir: Path):
         json.dump(config, f, indent=2)
         f.write("\n")
     print("Removed stale GPT-OSS MXFP4 quantization_config from dequantized BF16 export")
+
+
+def normalize_qwen3_moe_experts_for_vllm(output_dir: Path):
+    config_path = output_dir / "config.json"
+    if not config_path.exists():
+        return
+
+    with config_path.open("r") as f:
+        config = json.load(f)
+
+    if config.get("model_type") not in {"qwen3_moe", "qwen3_5_moe"}:
+        return
+
+    safetensor_paths = iter_exported_safetensor_paths(output_dir)
+    if not safetensor_paths:
+        return
+
+    has_packed_experts = False
+    has_native_experts = False
+    for path in safetensor_paths:
+        with safe_open(path, framework="pt") as f:
+            for key in f.keys():
+                if key.endswith(
+                    (
+                        ".mlp.experts.gate_up_proj",
+                        ".mlp.experts.down_proj",
+                        ".mlp.experts.w13_weight",
+                        ".mlp.experts.w2_weight",
+                    )
+                ):
+                    has_packed_experts = True
+                if (
+                    ".mlp.experts." in key
+                    and key.endswith(
+                        (
+                            ".gate_proj.weight",
+                            ".up_proj.weight",
+                            ".down_proj.weight",
+                        )
+                    )
+                ):
+                    has_native_experts = True
+
+    if not has_packed_experts or has_native_experts:
+        return
+
+    print("Expanding Qwen3 MoE packed expert weights for vLLM")
+    tmp_dir = output_dir / "_tmp_qwen3_moe_vllm_weights"
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir()
+
+    weight_map = {}
+    total_size = 0
+    shard_id = 0
+    shard_tensors = {}
+    shard_bytes = 0
+    max_shard_bytes = 4 * 1024**3
+
+    def tensor_bytes(tensor):
+        return tensor.numel() * tensor.element_size()
+
+    def flush_shard():
+        nonlocal shard_id, shard_tensors, shard_bytes
+        if not shard_tensors:
+            return
+        shard_id += 1
+        shard_name = f"model-{shard_id:05d}-of-XXXXX.safetensors"
+        save_file(shard_tensors, tmp_dir / shard_name, metadata={"format": "pt"})
+        for tensor_name in shard_tensors:
+            weight_map[tensor_name] = shard_name
+        shard_tensors = {}
+        shard_bytes = 0
+
+    def add_tensor(name, tensor):
+        nonlocal shard_bytes, total_size
+        size = tensor_bytes(tensor)
+        if shard_tensors and shard_bytes + size > max_shard_bytes:
+            flush_shard()
+        shard_tensors[name] = tensor.contiguous()
+        shard_bytes += size
+        total_size += size
+
+    for path in safetensor_paths:
+        with safe_open(path, framework="pt") as f:
+            for name in f.keys():
+                tensor = f.get_tensor(name)
+                if name.endswith((".mlp.experts.gate_up_proj", ".mlp.experts.w13_weight")):
+                    if name.endswith(".gate_up_proj"):
+                        prefix = name.removesuffix(".gate_up_proj")
+                    else:
+                        prefix = name.removesuffix(".w13_weight")
+                    split_at = tensor.shape[1] // 2
+                    for expert_id in range(tensor.shape[0]):
+                        add_tensor(
+                            f"{prefix}.{expert_id}.gate_proj.weight",
+                            tensor[expert_id, :split_at, :],
+                        )
+                        add_tensor(
+                            f"{prefix}.{expert_id}.up_proj.weight",
+                            tensor[expert_id, split_at:, :],
+                        )
+                elif name.endswith((".mlp.experts.down_proj", ".mlp.experts.w2_weight")):
+                    if name.endswith(".down_proj"):
+                        prefix = name.removesuffix(".down_proj")
+                    else:
+                        prefix = name.removesuffix(".w2_weight")
+                    for expert_id in range(tensor.shape[0]):
+                        add_tensor(
+                            f"{prefix}.{expert_id}.down_proj.weight",
+                            tensor[expert_id],
+                        )
+                else:
+                    add_tensor(name, tensor)
+
+    flush_shard()
+
+    final_shard_names = []
+    for old_shard in sorted(tmp_dir.glob("model-*-of-XXXXX.safetensors")):
+        final_name = old_shard.name.replace("XXXXX", f"{shard_id:05d}")
+        old_shard.rename(tmp_dir / final_name)
+        final_shard_names.append(final_name)
+        for tensor_name, shard_name in list(weight_map.items()):
+            if shard_name == old_shard.name:
+                weight_map[tensor_name] = final_name
+
+    with (tmp_dir / "model.safetensors.index.json").open("w") as f:
+        json.dump({"metadata": {"total_size": total_size}, "weight_map": weight_map}, f)
+
+    for old_path in safetensor_paths:
+        old_path.rename(old_path.with_suffix(old_path.suffix + ".torchtitan"))
+    old_index_file = output_dir / "model.safetensors.index.json"
+    if old_index_file.exists():
+        old_index_file.rename(output_dir / "model.safetensors.index.json.torchtitan")
+
+    for shard_name in final_shard_names:
+        shutil.move(str(tmp_dir / shard_name), output_dir / shard_name)
+    shutil.move(str(tmp_dir / "model.safetensors.index.json"), output_dir / "model.safetensors.index.json")
+    tmp_dir.rmdir()
 
 
 def normalize_ernie_experts_for_vllm(output_dir: Path):

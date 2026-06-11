@@ -109,11 +109,46 @@ class VLLMWrapper:
     lm_eval_model_args: Optional[dict]
     direct_vllm_model: Optional[Any] = None
     _sampling_params_cls: Optional[Any] = None
+    model_path: str = ""
+    is_qwen3_model: bool = False
+    is_gpt_oss_model: bool = False
 
     def build_sampling_params(self, **kwargs):
         if self._sampling_params_cls:
             return self._sampling_params_cls(**kwargs)
         raise RuntimeError("SamplingParams class not available.")
+
+
+def is_qwen3_model(model_path: str) -> bool:
+    lowered_path = model_path.lower()
+    if "qwen3" in lowered_path:
+        return True
+
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        return False
+
+    with config_path.open() as f:
+        model_config = json.load(f)
+    model_type = str(model_config.get("model_type", "")).lower()
+    architectures = [str(arch).lower() for arch in model_config.get("architectures", [])]
+    return model_type.startswith("qwen3") or any("qwen3" in arch for arch in architectures)
+
+
+def is_gpt_oss_model(model_path: str) -> bool:
+    lowered_path = model_path.lower()
+    if "gpt-oss" in lowered_path or "gpt_oss" in lowered_path:
+        return True
+
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        return False
+
+    with config_path.open() as f:
+        model_config = json.load(f)
+    model_type = str(model_config.get("model_type", "")).lower()
+    architectures = [str(arch).lower() for arch in model_config.get("architectures", [])]
+    return model_type == "gpt_oss" or any("gptoss" in arch or "gpt_oss" in arch for arch in architectures)
 
 
 def build_vllm_wrapper(
@@ -130,6 +165,8 @@ def build_vllm_wrapper(
 
     lm_eval_model_cls = get_model("vllm")
 
+    qwen3_model = is_qwen3_model(model_path)
+    gpt_oss_model = is_gpt_oss_model(model_path)
     
     vllm_kwargs = {
         "pretrained": model_path,
@@ -149,7 +186,10 @@ def build_vllm_wrapper(
 
     if "qwen3.5" in model_path.lower():
         vllm_kwargs["gdn_prefill_backend"] = "triton"
+    if qwen3_model:
         vllm_kwargs["think_end_token"] = "</think>"
+    if gpt_oss_model:
+        vllm_kwargs["think_end_token"] = "<|channel|>final<|message|>"
 
     lm_eval_model_instance = lm_eval_model_cls(**vllm_kwargs)
 
@@ -158,6 +198,9 @@ def build_vllm_wrapper(
         lm_eval_model_args=None,
         direct_vllm_model=lm_eval_model_instance.model if needs_direct_vllm else None,
         _sampling_params_cls=SamplingParams,
+        model_path=model_path,
+        is_qwen3_model=qwen3_model,
+        is_gpt_oss_model=gpt_oss_model,
     )
 
 
@@ -173,7 +216,7 @@ def evaluate_model(
 ):
     max_model_len = 4096
     if "te" in selected_languages:
-        max_model_len = 5000
+        max_model_len = 7000
         print(f"Using max_model_len={max_model_len} for languages: {selected_languages}")
 
     vllm_wrapper = build_vllm_wrapper(

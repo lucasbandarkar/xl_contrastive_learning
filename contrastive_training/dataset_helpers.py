@@ -1,5 +1,6 @@
 import json
 from datasets import Dataset, load_dataset
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 MIXED_PARALLEL_VALIDATION_LIMIT = 1000
@@ -25,18 +26,22 @@ OPUS_LANGUAGE_CODES = {
     "pes": "fa",
     "bn": "bn",
     "ben": "bn",
+    "ben_Beng": "bn",
     "hu": "hu",
     "hun": "hu",
     "id": "id",
     "ind": "id",
     "kn": "kn",
     "kan": "kn",
+    "kan_Knda": "kn",
     "ky": "ky",
     "kir": "ky",
     "ne": "ne",
     "npi": "ne",
+    "npi_Deva": "ne",
     "te": "te",
     "tel": "te",
+    "tel_Telu": "te",
     "vi": "vi",
     "vie": "vi",
     "si": "si",
@@ -129,9 +134,10 @@ MIXED_SOURCE_SPECS = {
         {"name": "nusax_mt", "weight": 0.06, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
     ],
     "bn": [
-        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
-        {"name": "samanantar", "weight": 0.35, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
-        {"name": "nllb", "weight": 0.20, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "updesh", "weight": 0.45, "kind": "updesh_sft"},
+        {"name": "bactrianx_sft", "weight": 0.20, "kind": "bactrianx_sft"},
+        {"name": "samanantar", "weight": 0.20, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.10, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "hu": [
@@ -139,24 +145,27 @@ MIXED_SOURCE_SPECS = {
         {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},
     ],
     "kn": [
-        {"name": "samanantar", "weight": 0.60, "kind": "generic", "path": "ai4bharat/samanantar", "config": "kn", "source_field": "src", "target_field": "tgt"},
-        {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+        {"name": "updesh", "weight": 0.55, "kind": "updesh_sft"},
+        {"name": "samanantar", "weight": 0.25, "kind": "generic", "path": "ai4bharat/samanantar", "config": "kn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.15, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "ky": [
         {"name": "nllb", "weight": 0.70, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.30, "kind": "opus100"},
     ],
     "ne": [
-        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
-        {"name": "nllb", "weight": 0.25, "kind": "nllb", **NLLB_SOURCE_FIELDS},
-        {"name": "opus100", "weight": 0.15, "kind": "opus100"},
-        {"name": "eng2nep", "weight": 0.20, "kind": "generic", "path": "momo22/eng2nep", "source_field": "English", "target_field": "Nepali"},
+        {"name": "updesh", "weight": 0.50, "kind": "updesh_sft"},
+        {"name": "bactrianx_sft", "weight": 0.25, "kind": "bactrianx_sft"},
+        {"name": "nllb", "weight": 0.10, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "opus100", "weight": 0.05, "kind": "opus100"},
+        {"name": "eng2nep", "weight": 0.10, "kind": "generic", "path": "momo22/eng2nep", "source_field": "English", "target_field": "Nepali"},
     ],
     "te": [
-        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
-        {"name": "samanantar", "weight": 0.40, "kind": "generic", "path": "ai4bharat/samanantar", "config": "te", "source_field": "src", "target_field": "tgt"},
-        {"name": "nllb", "weight": 0.15, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "updesh", "weight": 0.45, "kind": "updesh_sft"},
+        {"name": "bactrianx_sft", "weight": 0.25, "kind": "bactrianx_sft"},
+        {"name": "samanantar", "weight": 0.25, "kind": "generic", "path": "ai4bharat/samanantar", "config": "te", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.10, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.05, "kind": "opus100"},
     ],
     "vi": [
@@ -185,6 +194,8 @@ ENGLISH_FIELD_NAMES = ("en", "eng", "eng_Latn", "english")
 NLLB_ENGLISH_BITEXT_DATASET = "hotchpotch/nllb-english-bitext-hq"
 BACTRIAN_X_DATASET = "MBZUAI/Bactrian-X"
 BACTRIAN_X_DATA_PATH_TEMPLATE = "hf://datasets/MBZUAI/Bactrian-X/data/{language}.json.gz"
+UPDESH_DATA_DIR = Path("/data2/lucasbandarkar/sft_datasets/orca-agentinstruct")
+UPDESH_FILE_PATTERN_TEMPLATE = "orca-agentinstruct-1M-v1.*.{language}.jsonl"
 
 _BACTRIAN_X_ENGLISH_BY_ID: Optional[Dict[str, Dict[str, Any]]] = None
 
@@ -308,6 +319,19 @@ def _normalize_messages(messages: Any) -> Optional[List[Dict[str, str]]]:
 
 def _messages_to_plain_text(messages: List[Dict[str, str]]) -> str:
     return "\n".join(f"{message['role']}: {message['content']}" for message in messages)
+
+
+def _get_updesh_field(example: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+    content = example.get("content")
+    if isinstance(content, dict):
+        for key in keys:
+            if key in content:
+                return content[key]
+
+    for key in keys:
+        if key in example:
+            return example[key]
+    return None
 
 
 def _load_feature_messages(value):
@@ -503,6 +527,65 @@ def _format_parallel_example(
     )
 
 
+def _format_updesh_sft_example(
+    example: Dict[str, Any],
+    language_config: Dict[str, Any],
+    spec: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    messages_src = _normalize_messages(_get_updesh_field(example, ("input", "inputs")))
+    messages_tgt = _normalize_messages(_get_updesh_field(example, ("output", "outputs")))
+    if not messages_src or not messages_tgt:
+        return None
+
+    src_text = _messages_to_plain_text(messages_src)
+    tgt_text = _messages_to_plain_text(messages_tgt)
+    if src_text == tgt_text:
+        return None
+
+    return _make_dataset_example(
+        src_text=src_text,
+        tgt_text=tgt_text,
+        language_config=language_config,
+        source_name=spec["name"],
+        example_type="sft_parallel",
+        messages_src=messages_src,
+        messages_tgt=messages_tgt,
+    )
+
+
+def _updesh_data_files(spec: Dict[str, Any], language_config: Dict[str, Any]) -> Tuple[Path, List[Path]]:
+    data_dir = Path(spec.get("data_dir", UPDESH_DATA_DIR))
+    language = spec.get("language", language_config["nllb"])
+    pattern = spec.get("file_pattern", UPDESH_FILE_PATTERN_TEMPLATE.format(language=language))
+    data_files = sorted(data_dir.glob(pattern))
+    return data_dir, data_files
+
+
+def _iter_jsonl_file(path: Path):
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON in {path}:{line_number}: {exc}") from exc
+
+
+def _iter_round_robin_jsonl(paths: List[Path]):
+    iterators = [iter(_iter_jsonl_file(path)) for path in paths]
+    while iterators:
+        active_iterators = []
+        for iterator in iterators:
+            try:
+                yield next(iterator)
+                active_iterators.append(iterator)
+            except StopIteration:
+                continue
+        iterators = active_iterators
+
+
 def _source_dataset_stream(spec: Dict[str, Any], language_config: Dict[str, Any]):
     kind = spec["kind"]
     if kind == "nllb":
@@ -528,6 +611,14 @@ def _source_dataset_stream(spec: Dict[str, Any], language_config: Dict[str, Any]
             split=spec.get("split", "train"),
             trust_remote_code=spec.get("trust_remote_code", False),
         )
+
+    if kind == "updesh_sft":
+        data_dir, data_files = _updesh_data_files(spec, language_config)
+        if not data_files:
+            raise FileNotFoundError(
+                f"No UPDESH JSONL files found for {language_config['nllb']} in {data_dir}"
+            )
+        return _iter_round_robin_jsonl(data_files)
 
     raise ValueError(f"Unknown mixed-parallel source kind '{kind}'")
 
@@ -617,7 +708,7 @@ def _collect_examples_from_source(
     language_config: Dict[str, Any],
     requested_count: int,
     seen_pairs: set,
-) -> List[Dict[str, Dict[str, str]]]:
+) -> List[Dict[str, Any]]:
     if requested_count <= 0:
         return []
 
@@ -627,7 +718,10 @@ def _collect_examples_from_source(
     collected = []
     stream = _source_dataset_stream(spec, language_config)
     for raw_example in stream:
-        example = _format_parallel_example(raw_example, language_config, spec)
+        if spec["kind"] == "updesh_sft":
+            example = _format_updesh_sft_example(raw_example, language_config, spec)
+        else:
+            example = _format_parallel_example(raw_example, language_config, spec)
         if example is None:
             continue
 

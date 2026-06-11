@@ -88,7 +88,7 @@ def create_training_args(
         bf16=False, # disable to maintain Pure BF16 (avoids FP32 master weight upcast bug)
         eval_strategy='steps',
         # eval_steps=1/25, # eval 20 times through training
-        save_total_limit=3 if save_checkpoints and not test_run else None,
+        save_total_limit=2 if save_checkpoints and not test_run else None,
         logging_steps=warmup_steps, # about 1k samples
         remove_unused_columns=False, # essential for our ParallelDataCollator
         log_on_each_node=False,

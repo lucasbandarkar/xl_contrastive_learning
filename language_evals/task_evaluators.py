@@ -199,7 +199,7 @@ class MMLUProXEvaluator(Evaluator):
             batch_size="auto",
             verbosity="WARNING",
             log_samples=False,
-            gen_kwargs={"max_gen_toks": 16},
+            # gen_kwargs={"max_gen_toks": 16}, # Reverting back to default 2048 token
         )
         results_clean = {}
         for task, metrics in results['groups'].items():
@@ -297,6 +297,65 @@ class INCLUDEEvaluator(Evaluator):
 
 
 class FLoResEngXEvaluator(Evaluator):
+    def build_task_config(self, task_name: str, tgt_lang: str, target_language_name: str) -> str:
+        if getattr(self.vllm_wrapper, "is_qwen3_model", False):
+            return (
+                f'include: "{FLORES_BASE_YAML}"\n'
+                f"task: {task_name}\n"
+                f"dataset_name: eng_Latn-{tgt_lang}\n"
+                "doc_to_text: |\n"
+                f"  Translate the following text from English to {target_language_name}. Return only the translation.\n"
+                "  /no_think\n"
+                "\n"
+                "  {{sentence_eng_Latn}}\n"
+                "\n"
+                "  Translation:\n"
+                f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
+                "generation_kwargs:\n"
+                "  max_gen_toks: 256\n"
+                "  until:\n"
+                "    - \"<|im_end|>\"\n"
+                "    - \"<|endoftext|>\"\n"
+                f"dataset_kwargs:\n  trust_remote_code: True\n"
+            )
+
+        if getattr(self.vllm_wrapper, "is_gpt_oss_model", False):
+            return (
+                f'include: "{FLORES_BASE_YAML}"\n'
+                f"task: {task_name}\n"
+                f"dataset_name: eng_Latn-{tgt_lang}\n"
+                "doc_to_text: |\n"
+                f"  Translate the following text from English to {target_language_name}. Return only the translation.\n"
+                "\n"
+                "  {{sentence_eng_Latn}}\n"
+                "\n"
+                "  Translation:\n"
+                f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
+                "generation_kwargs:\n"
+                "  max_gen_toks: 256\n"
+                "  until:\n"
+                "    - \"<|return|>\"\n"
+                "    - \"<|endoftext|>\"\n"
+                f"dataset_kwargs:\n  trust_remote_code: True\n"
+            )
+
+        return (
+            f'include: "{FLORES_BASE_YAML}"\n'
+            f"task: {task_name}\n"
+            f"dataset_name: eng_Latn-{tgt_lang}\n"
+            "doc_to_text: |\n"
+            "  You are translating a single sentence for a multilingual evaluation set.\n"
+            f"  Target language: {target_language_name}\n"
+            f"  Target FLORES code: {tgt_lang}\n"
+            "  Write only the translated sentence in the target language. Do not explain or copy the English.\n"
+            "  <english_source>\n"
+            "  {{sentence_eng_Latn}}\n"
+            "  </english_source>\n"
+            "  <target_sentence>\n"
+            f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
+            f"dataset_kwargs:\n  trust_remote_code: True\n"
+        )
+
     def lm_eval_evaluate(self, langcodes, debugging=False, output_file="output.json"):
         # We skip English ("en") since we are evaluating English -> Target translations
         eval_langcodes = [lang for lang in langcodes if lang != "en"]
@@ -315,24 +374,7 @@ class FLoResEngXEvaluator(Evaluator):
                 target_language_name = FLORES_TARGET_LANGUAGE_NAMES.get(lang, tgt_lang)
                 task_name = f"flores_eng_Latn_{tgt_lang}"
                 task_names.append(task_name)
-                
-                # Jinja templating mapped to the Hugging Face dataset columns
-                task_config = (
-                    f'include: "{FLORES_BASE_YAML}"\n'
-                    f"task: {task_name}\n"
-                    f"dataset_name: eng_Latn-{tgt_lang}\n"
-                    "doc_to_text: |\n"
-                    "  You are translating a single sentence for a multilingual evaluation set.\n"
-                    f"  Target language: {target_language_name}\n"
-                    f"  Target FLORES code: {tgt_lang}\n"
-                    "  Write only the translated sentence in the target language. Do not explain or copy the English.\n"
-                    "  <english_source>\n"
-                    "  {{sentence_eng_Latn}}\n"
-                    "  </english_source>\n"
-                    "  <target_sentence>\n"
-                    f"doc_to_target: '{{{{sentence_{tgt_lang}}}}}'\n"
-                    f"dataset_kwargs:\n  trust_remote_code: True\n"
-                )
+                task_config = self.build_task_config(task_name, tgt_lang, target_language_name)
                 (temp_dir_path / f"{task_name}.yaml").write_text(task_config)
 
             task_manager = tasks.TaskManager(include_path=str(temp_dir_path))
@@ -342,6 +384,13 @@ class FLoResEngXEvaluator(Evaluator):
                 "num_fewshot": self.shots,
                 "batch_size": "auto",
             }
+            if getattr(self.vllm_wrapper, "is_gpt_oss_model", False):
+                eval_kwargs.update(
+                    {
+                        "apply_chat_template": True,
+                        "fewshot_as_multiturn": False,
+                    }
+                )
             if debugging:
                 eval_kwargs.update({"limit": 25, "log_samples": True})
             else:
