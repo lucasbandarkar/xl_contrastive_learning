@@ -7,6 +7,19 @@
             }
         }
     },
+    "qwen3-moe-tiny": {
+        "auto_find_batch_size": false,
+        "batch_sizes_by_gpus": {
+            "full": {
+                "1": 8
+            }
+        },
+        "batch_sizes_smaller_gpu": {
+            "full": {
+                "1": 32
+            }
+        }
+    },
     "gpt": {
         "auto_find_batch_size": false,
         "batch_sizes_by_gpus": {
