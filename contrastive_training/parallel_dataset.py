@@ -15,6 +15,8 @@ from dataset_helpers import (
 
 MAX_LENGTH = 384 # for control
 TRANSLATION_SFT_MAX_LENGTH = 512 # longer because two texts needed in one sample
+PACKED_SEQUENCE_SOURCE = 0
+PACKED_SEQUENCE_TARGET = 1
 
 
 class ParallelDataCollator:
@@ -77,6 +79,104 @@ class ParallelDataCollator:
         labels_tgt[batch["attention_mask_tgt"] == 0] = -100
         batch["labels_tgt"] = labels_tgt
         return batch
+
+
+class PackedParallelDataCollator:
+    """Pack target/source pairs into one row for FlashAttention varlen training."""
+
+    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=None):
+        self.tokenizer = tokenizer
+        self.src_key = src_language_key
+        self.tgt_key = tgt_language_key
+        self.max_length = max_length or MAX_LENGTH
+
+    def _tokenize(self, sentences: List[str]) -> List[List[int]]:
+        encoded = self.tokenizer(
+            sentences,
+            padding=False,
+            truncation=True,
+            max_length=self.max_length,
+            return_attention_mask=False,
+        )
+        return encoded["input_ids"]
+
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        tgt_sentences = [feature["translation"][self.tgt_key] for feature in features]
+        src_sentences = [feature["translation"][self.src_key] for feature in features]
+        all_sequences = self._tokenize(tgt_sentences + src_sentences)
+        batch_size = len(features)
+        tgt_sequences = all_sequences[:batch_size]
+        src_sequences = all_sequences[batch_size:]
+
+        input_ids: list[int] = []
+        labels: list[int] = []
+        position_ids: list[int] = []
+        seq_idx: list[int] = []
+        sample_ids: list[int] = []
+        sequence_type: list[int] = []
+        cu_seq_lens = [0]
+        target_cu_seq_lens = [0]
+        max_sequence_length = 0
+        target_max_sequence_length = 0
+        target_total_tokens = 0
+        sequence_index = 0
+
+        def append_sequence(token_ids: list[int], sample_index: int, seq_type: int) -> None:
+            nonlocal sequence_index, max_sequence_length, target_max_sequence_length, target_total_tokens
+            if not token_ids:
+                raise ValueError(f"Packed sequence for sample {sample_index} tokenized to zero tokens.")
+
+            start = len(input_ids)
+            input_ids.extend(token_ids)
+            position_ids.extend(range(len(token_ids)))
+            seq_idx.extend([sequence_index] * len(token_ids))
+            sample_ids.extend([sample_index] * len(token_ids))
+            sequence_type.extend([seq_type] * len(token_ids))
+            cu_seq_lens.append(len(input_ids))
+            max_sequence_length = max(max_sequence_length, len(token_ids))
+
+            if seq_type == PACKED_SEQUENCE_TARGET:
+                target_labels = list(token_ids)
+                target_labels[0] = -100
+                labels.extend(target_labels)
+                target_total_tokens += len(token_ids)
+                target_cu_seq_lens.append(target_total_tokens)
+                target_max_sequence_length = max(target_max_sequence_length, len(token_ids))
+            else:
+                labels.extend([-100] * len(token_ids))
+
+            if len(input_ids) != start + len(token_ids):
+                raise RuntimeError("Packed sequence length accounting failed.")
+            sequence_index += 1
+
+        for sample_index, tgt_ids in enumerate(tgt_sequences):
+            append_sequence(tgt_ids, sample_index, PACKED_SEQUENCE_TARGET)
+        for sample_index, src_ids in enumerate(src_sequences):
+            append_sequence(src_ids, sample_index, PACKED_SEQUENCE_SOURCE)
+
+        if not input_ids:
+            raise ValueError("PackedParallelDataCollator received only empty tokenized sequences.")
+
+        cu_seq_lens_tensor = torch.tensor(cu_seq_lens, dtype=torch.int32)
+        target_cu_seq_lens_tensor = torch.tensor(target_cu_seq_lens, dtype=torch.int32)
+        return {
+            "packed": torch.tensor(True),
+            "input_ids": torch.tensor([input_ids], dtype=torch.long),
+            "labels": torch.tensor([labels], dtype=torch.long),
+            "position_ids": torch.tensor([position_ids], dtype=torch.long),
+            "seq_idx": torch.tensor([seq_idx], dtype=torch.int32),
+            "sample_ids": torch.tensor([sample_ids], dtype=torch.long),
+            "sequence_type": torch.tensor([sequence_type], dtype=torch.long),
+            "cu_seq_lens_q": cu_seq_lens_tensor,
+            "cu_seq_lens_k": cu_seq_lens_tensor.clone(),
+            "max_length_q": max_sequence_length,
+            "max_length_k": max_sequence_length,
+            "target_cu_seq_lens_q": target_cu_seq_lens_tensor,
+            "target_cu_seq_lens_k": target_cu_seq_lens_tensor.clone(),
+            "target_max_length_q": target_max_sequence_length,
+            "target_max_length_k": target_max_sequence_length,
+            "target_token_count": target_total_tokens,
+        }
 
 
 class TargetLanguageCausalLMCollator:

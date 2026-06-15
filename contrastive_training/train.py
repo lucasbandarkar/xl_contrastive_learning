@@ -5,6 +5,7 @@ from modeling import load_models
 from parallel_dataset import (
     load_parallel_datasets,
     ParallelDataCollator,
+    PackedParallelDataCollator,
     TargetLanguageCausalLMCollator,
     format_translation_sft_dataset,
 )
@@ -152,6 +153,7 @@ def build_training_metadata(
             "baseline": args.baseline,
             "baseline_mode": args.baseline_mode if args.baseline else None,
             "earlyexit": args.earlyexit,
+            "packed": args.packed,
             "min_layer": args.min_layer,
             "max_layer": args.max_layer,
             "freezing_mode": freezing_mode,
@@ -256,6 +258,8 @@ def create_output_directory_name(args, size_suffix):
             training_details += "_routers"
         elif args.freezing_mode == 2:
             training_details += "_nofreeze"
+        if args.packed:
+            training_details += "_packed"
 
     return f"{prefix}_{training_details}_{size_suffix}"
 
@@ -267,6 +271,10 @@ def is_aws_server():
 def main(args):
     num_gpus = torch.cuda.device_count()
     multi_gpu = num_gpus > 1
+    if args.packed and (args.baseline or args.earlyexit):
+        raise ValueError("--packed is supported only for full ContrastiveLMTrainer runs.")
+    if args.packed and args.no_optimizations:
+        raise ValueError("--packed requires optimized model loading so Granite uses flash_attention_2.")
     
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
@@ -392,7 +400,11 @@ def main(args):
             args=training_args,
             train_dataset=dataset_train,
             eval_dataset=dataset_valid,
-            data_collator=ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length")),
+            data_collator=(
+                PackedParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length"))
+                if args.packed
+                else ParallelDataCollator(tokenizer, key_src, key_tgt, model_config.get("max_length"))
+            ),
             min_layer=args.min_layer,
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
@@ -474,6 +486,7 @@ if __name__ == "__main__":
     parser.add_argument('--disable_cache', action="store_true", help="disable HF model use_cache and avoid dataset map cache where supported")
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
+    parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',

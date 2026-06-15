@@ -9,6 +9,34 @@ uv sync
 CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -m granite -f 1 --disable_cache --no-checkpoint
 ```
 
+Packed training:
+```
+CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml \
+  train.py -l pes -m qwen3-moe-tiny -f 1 -b 16 --packed --disable_cache --no-checkpoint
+```
+
+`--packed` packs target/source examples into one flattened row, passes reset `position_ids`,
+`seq_idx`, and FlashAttention `cu_seq_lens_*`, and computes the same target LM loss and mean-token
+router KL loss without padding tokens. Granite and Qwen3 MoE use split-forward packed paths that
+drop source tokens after the selected router-loss layer; other MoE models use the generic
+router-logit path when their Transformers forward accepts `cu_seq_lens_*`. The current packed
+collator still batches by example count (`-b`); `max_length` only truncates each sequence before
+packing. If packed training becomes the default path, the next batching change should be
+token-budget packing: pack examples until total sequence length reaches `N`.
+
+Measured speedups on one L40S:
+
+| Freeze mode | Variant | Batch | Grad accum | Runtime | Seconds/step | Samples/s | Steps/s | Eval loss | Packed speedup |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Router-only (`-f 1`) | padded | 16 | 2 | 216.88s | 0.693 | 46.11 | 1.443 | 12.89 | 1.000x |
+| Router-only (`-f 1`) | packed | 16 | 2 | 102.26s | 0.327 | 97.79 | 3.061 | 12.69 | 2.121x |
+| No-freeze (`-f 2`) | padded | 16 | 2 | 246.49s | 0.788 | 40.57 | 1.270 | 12.77 | 1.000x |
+| No-freeze (`-f 2`) | packed | 16 | 2 | 118.89s | 0.380 | 84.11 | 2.633 | 12.51 | 2.073x |
+
+Granite-4.0-h-tiny did not benefit
+from this packed path in a small router-only microbenchmark, because Granite/Mamba sequence
+index overhead dominates the padding savings.
+
 
 ```
 conda create -n xlcl python=3.14

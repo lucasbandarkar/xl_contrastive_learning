@@ -9,6 +9,9 @@ import re
 from types import MethodType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from packed_forward import get_packed_forward, select_packed_target_positions
+from parallel_dataset import PACKED_SEQUENCE_SOURCE, PACKED_SEQUENCE_TARGET
+
 POSSIBLE_ROUTER_NAMES = [
     'mlp.router',
     'mlp.gate',
@@ -171,6 +174,31 @@ def patch_granite_router_logits(model):
     model._contrastive_granite_router_patch = True
 
 
+def patch_qwen3_moe_router_logits(model):
+    if getattr(model, "_contrastive_qwen3_moe_router_patch", False):
+        return
+
+    for layer in model.model.layers:
+        moe = getattr(layer, "mlp", None)
+        if not (hasattr(moe, "gate") and hasattr(moe, "experts")):
+            continue
+
+        original_forward = moe.forward
+
+        def forward_with_router_logits(self, hidden_states):
+            batch_size, sequence_length, hidden_dim = hidden_states.shape
+            hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
+            router_logits, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
+            self.router_logits = router_logits
+            final_hidden_states = self.experts(hidden_states_reshaped, selected_experts, routing_weights)
+            return final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
+
+        moe._contrastive_original_forward = original_forward
+        moe.forward = MethodType(forward_with_router_logits, moe)
+
+    model._contrastive_qwen3_moe_router_patch = True
+
+
 def contrastive_loss_fn(
         router_logits_tgt, mask_tgt,
         router_logits_src, mask_src,
@@ -266,6 +294,102 @@ def contrastive_loss_fn(
     
     # elif token_aggregation == 4:
 
+
+def packed_contrastive_loss_fn(
+        router_logits,
+        sample_ids,
+        sequence_type,
+        scoring_func,
+        token_aggregation=1,
+    ):
+    """Compute the same mean-token routing KL loss from packed token rows."""
+    if token_aggregation != 1:
+        raise ValueError("Packed contrastive loss currently supports only mean token aggregation.")
+
+    if router_logits.dim() == 4:
+        if router_logits.size(1) != 1:
+            raise ValueError(f"Packed router logits should have batch size 1, got {router_logits.shape}.")
+        router_logits = router_logits.squeeze(1)
+    elif router_logits.dim() == 2:
+        router_logits = router_logits.unsqueeze(0)
+    elif router_logits.dim() != 3:
+        raise ValueError(f"Expected packed router logits with 2, 3, or 4 dims, got {router_logits.shape}.")
+
+    sample_ids = sample_ids.reshape(-1).long()
+    sequence_type = sequence_type.reshape(-1).long()
+    valid_tokens = sample_ids.ge(0)
+    if not valid_tokens.any():
+        return router_logits.sum() * 0.0
+
+    num_samples = int(sample_ids[valid_tokens].max().item()) + 1
+
+    def apply_scoring(x):
+        if scoring_func == "softmax":
+            return F.softmax(x, dim=-1)
+        elif scoring_func == "sigmoid":
+            return torch.sigmoid(x)
+        return x
+
+    def aggregate_by_sample(token_scores, token_mask):
+        num_layers, _, experts = token_scores.shape
+        sums = token_scores.new_zeros((num_layers, num_samples, experts))
+        counts = token_scores.new_zeros((num_samples, 1))
+        if token_mask.any():
+            indices = sample_ids[token_mask]
+            expanded_indices = indices.view(1, -1, 1).expand(num_layers, -1, experts)
+            sums.scatter_add_(1, expanded_indices, token_scores[:, token_mask, :])
+            counts.index_add_(
+                0,
+                indices,
+                torch.ones((indices.numel(), 1), device=token_scores.device, dtype=token_scores.dtype),
+            )
+        return sums, counts
+
+    target_mask = valid_tokens & sequence_type.eq(PACKED_SEQUENCE_TARGET)
+    source_mask = valid_tokens & sequence_type.eq(PACKED_SEQUENCE_SOURCE)
+    token_scores = apply_scoring(router_logits)
+    target_sums, target_counts = aggregate_by_sample(token_scores, target_mask)
+    source_sums, source_counts = aggregate_by_sample(token_scores, source_mask)
+    has_pair = target_counts.squeeze(-1).gt(0) & source_counts.squeeze(-1).gt(0)
+    if not has_pair.any():
+        return token_scores.sum() * 0.0
+
+    agg_routing_tgt = target_sums[:, has_pair, :] / target_counts[has_pair].view(1, -1, 1).clamp(min=1)
+    agg_routing_src = source_sums[:, has_pair, :] / source_counts[has_pair].view(1, -1, 1).clamp(min=1)
+    agg_routing_tgt = agg_routing_tgt / (agg_routing_tgt.sum(dim=-1, keepdim=True) + 1e-9)
+    agg_routing_src = agg_routing_src / (agg_routing_src.sum(dim=-1, keepdim=True) + 1e-9)
+    per_sample_kl = F.kl_div(torch.log(agg_routing_tgt + 1e-9), agg_routing_src, reduction='none').sum(dim=-1)
+    return per_sample_kl.mean(dim=1).mean()
+
+
+def _is_packed_batch(inputs: dict[str, Union[torch.Tensor, Any]]) -> bool:
+    packed = inputs.get("packed", False)
+    if isinstance(packed, torch.Tensor):
+        return bool(packed.item())
+    return bool(packed)
+
+
+def packed_target_lm_loss(
+    hidden_states: torch.Tensor,
+    labels: torch.Tensor,
+    lm_head: torch.nn.Module,
+    loss_fct: torch.nn.Module,
+    logits_scaling: float = 1.0,
+) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+    """Project only packed positions that contribute to target LM loss."""
+    shift_hidden_states = hidden_states[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    valid_lm_tokens = shift_labels.ne(-100)
+    if not valid_lm_tokens.any():
+        return shift_hidden_states.sum() * 0.0, None, shift_labels[valid_lm_tokens]
+
+    selected_hidden_states = shift_hidden_states[valid_lm_tokens]
+    selected_labels = shift_labels[valid_lm_tokens]
+    selected_logits = lm_head(selected_hidden_states)
+    selected_logits = selected_logits / logits_scaling
+    lm_loss = loss_fct(selected_logits.float(), selected_labels)
+    return lm_loss, selected_logits, selected_labels
+
 class TargetLMTrainer(FreezableTrainerMixin, Trainer):
     pass
 
@@ -295,6 +419,8 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
 
         if self.model.config.model_type == "granitemoehybrid":
             patch_granite_router_logits(self.model)
+        elif self.model.config.model_type == "qwen3_moe":
+            patch_qwen3_moe_router_logits(self.model)
 
     def lm_loss(self, shift_logits, shift_labels):
         valid_labels = shift_labels.ne(-100)
@@ -333,6 +459,43 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         )
         return RouterForwardOutput(router_logits=router_logits, logits=outputs.logits)
 
+    def compute_packed_loss(
+        self,
+        model: torch.nn.Module,
+        inputs: dict[str, Union[torch.Tensor, Any]],
+        return_outputs: bool = False,
+    ):
+        router_outputs = get_packed_forward(model, inputs, self.min_layer, self.max_layer)
+        logits_scaling = getattr(model.config, "logits_scaling", 1.0)
+        target_labels = select_packed_target_positions(inputs["labels"], inputs)
+        lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss(
+            router_outputs.hidden_states,
+            target_labels,
+            model.lm_head,
+            self.lm_loss_fct,
+            logits_scaling=logits_scaling,
+        )
+
+        contrastive_loss_val = packed_contrastive_loss_fn(
+            router_outputs.router_logits,
+            inputs["sample_ids"],
+            inputs["sequence_type"],
+            self.scoring_func,
+        )
+        total_loss = lm_loss_tgt + 200 * self.alpha_contrastive * contrastive_loss_val
+
+        if return_outputs:
+            log_outputs = {
+                "logits_tgt": logits_tgt,
+                "labels_tgt": lm_labels_tgt,
+                "logits_src": None,
+                "lm_loss_tgt": lm_loss_tgt.detach(),
+                "contrastive_loss_val": contrastive_loss_val.detach(),
+                "total_loss_computed": total_loss.detach(),
+            }
+            return total_loss, log_outputs
+        return total_loss
+
     def compute_loss(
         self,
         model: torch.nn.Module,
@@ -340,6 +503,8 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         return_outputs: bool = False,
         num_items_in_batch: Optional[torch.Tensor] = None,
     ):
+        if _is_packed_batch(inputs):
+            return self.compute_packed_loss(model, inputs, return_outputs=return_outputs)
 
         # Concatenate along the batch dimension for a single efficient forward pass
         combined_input_ids = torch.cat([inputs['input_ids_tgt'], inputs['input_ids_src']], dim=0)
@@ -403,7 +568,10 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
             # Extract the specific parts for evaluation
             # We focus on the target language for the 'logits' and 'labels'
             logits = outputs.get("logits_tgt")
-            labels = inputs.get("labels_tgt", inputs.get("input_ids_tgt"))
+            if _is_packed_batch(inputs):
+                labels = outputs.get("labels_tgt")
+            else:
+                labels = inputs.get("labels_tgt", inputs.get("input_ids_tgt"))
 
         if prediction_loss_only:
             return (loss, None, None)

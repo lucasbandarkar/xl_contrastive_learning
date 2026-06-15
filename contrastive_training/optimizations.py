@@ -16,6 +16,9 @@ from torchtitan.models.moe import MoE, MoEArgs
 logger = logging.getLogger(__name__)
 FLASH_ATTN2_IMPLEMENTATION = "flash_attention_2"
 TORCHTITAN_MOE_MODEL_TYPES = {"qwen3_moe", "glm4_moe"}
+TORCHTITAN_INCOMPATIBLE_MODEL_IDS = {
+    "PrimeIntellect/qwen3-moe-tiny": "checkpoint uses fused gate_up_proj/down_proj expert tensors, not TorchTitan's split w1/w2/w3 Qwen3 layout",
+}
 FLASH_ATTN3_MODEL_TYPES = {
     "glm4_moe",
     "gpt_oss",
@@ -61,9 +64,12 @@ MODEL_ALIASES = {
     "Granite-4.0-h-tiny": "ibm-granite/granite-4.0-h-tiny",
     "qwen35": "Qwen/Qwen3.5-35B-A3B",
     "Qwen3.5-35B-A3B": "Qwen/Qwen3.5-35B-A3B",
+    "qwen3": "Qwen/Qwen3-30B-A3B",
+    "Qwen3-30B-A3B": "Qwen/Qwen3-30B-A3B",
     "qwen3_30b": "Qwen/Qwen3-30B-A3B-Instruct-2507",
     "qwen3-30b-instruct-2507": "Qwen/Qwen3-30B-A3B-Instruct-2507",
     "Qwen3-30B-A3B-Instruct-2507": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+    "qwen3-moe-tiny": "PrimeIntellect/qwen3-moe-tiny",
     "sarvam-30b": "sarvamai/sarvam-30b",
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
     "baidu/ERNIE-4.5-21B-A3B-PT": "baidu/ERNIE-4.5-21B-A3B-PT",
@@ -100,7 +106,7 @@ def prepare_model_load(
         optimization_config.attn_implementation,
         config.model_type,
     )
-    apply_model_patches(config.model_type, optimization_config)
+    apply_model_patches(config.model_type, optimization_config, model_name=model_name)
 
     model_kwargs = {
         "dtype": torch.bfloat16,
@@ -168,8 +174,16 @@ def apply_liger_kernel(model_type: str) -> bool:
     return True
 
 
-def apply_torchtitan_moe(model_type: str) -> bool:
+def apply_torchtitan_moe(model_type: str, model_name: str | None = None) -> bool:
     """Patch supported MoE decoder layers to use TorchTitan grouped GEMM MoE."""
+    if model_name in TORCHTITAN_INCOMPATIBLE_MODEL_IDS:
+        logger.info(
+            "TorchTitan MoE is not applied to `%s`: %s.",
+            model_name,
+            TORCHTITAN_INCOMPATIBLE_MODEL_IDS[model_name],
+        )
+        return False
+
     if model_type == "qwen3_moe":
         _apply_qwen3_torchtitan_moe()
     elif model_type == "glm4_moe":
@@ -246,9 +260,9 @@ def _apply_glm4_torchtitan_moe() -> None:
     modeling_glm4_moe.Glm4MoeDecoderLayer = Glm4MoeTorchTitanDecoderLayer
 
 
-def apply_model_patches(model_type: str, config: OptimizationConfig) -> None:
+def apply_model_patches(model_type: str, config: OptimizationConfig, model_name: str | None = None) -> None:
     apply_liger_kernel(model_type)
-    apply_torchtitan_moe(model_type)
+    apply_torchtitan_moe(model_type, model_name=model_name)
 
 
 def apply_torch_compile(model: torch.nn.Module, config: OptimizationConfig) -> torch.nn.Module:
