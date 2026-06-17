@@ -1,23 +1,29 @@
 import sys, os
 from transformers import AutoTokenizer
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 import torch
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from dataset_helpers import (
     detect_mgsm_language,
     format_feature_text,
     format_translation_sft_batch,
     load_mixed_parallel_dataset,
+    _load_feature_messages,
+    MIXED_PARALLEL_VALIDATION_LIMIT,
+    MAX_LENGTH_BY_LANGUAGE,
+    filtered_parallel_dataset_path,
     opus_language_code,
     opus_split_name,
 )
 
-MAX_LENGTH = 384 # for control
+DEFAULT_MAX_LENGTH = 384 # for control
 TRANSLATION_SFT_MAX_LENGTH = 512 # longer because two texts needed in one sample
 PACKED_SEQUENCE_SOURCE = 0
 PACKED_SEQUENCE_TARGET = 1
 
+def resolve_max_length(language_key, max_length) -> int:
+    return max_length or MAX_LENGTH_BY_LANGUAGE.get(language_key, DEFAULT_MAX_LENGTH)
 
 class ParallelDataCollator:
     # does it make sense to inherit from DPODataCollatorWithPadding ??
@@ -25,7 +31,7 @@ class ParallelDataCollator:
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
-        self.max_length = max_length or MAX_LENGTH
+        self.max_length = resolve_max_length(tgt_language_key, max_length)
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         """
@@ -182,33 +188,147 @@ class PackedParallelDataCollator:
 class TargetLanguageCausalLMCollator:
     """Build target-language-only batches for an LM-only CPT baseline."""
 
-    def __init__(self, tokenizer: AutoTokenizer, src_language_key, tgt_language_key, max_length=MAX_LENGTH):
+    def __init__(
+        self,
+        tokenizer: AutoTokenizer,
+        src_language_key,
+        tgt_language_key,
+        max_length=None,
+    ):
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
-        self.max_length = max_length
+        self.max_length = resolve_max_length(tgt_language_key, max_length)
 
-    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        tgt_sentences = [
-            format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
-            for feature in features
-        ]
-        batch = self.tokenizer(
-            tgt_sentences,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
+    def _format_chat_feature(self, feature: Dict[str, Any]) -> Optional[tuple[List[int], List[int]]]:
+        messages = _load_feature_messages(feature.get("messages_tgt_json"))
+        if not messages or not getattr(self.tokenizer, "chat_template", None):
+            return None
+
+        assistant_idx = next(
+            (idx for idx in range(len(messages) - 1, -1, -1) if messages[idx].get("role") == "assistant"),
+            None,
+        )
+        if assistant_idx is None:
+            return None
+
+        prompt_text = self.tokenizer.apply_chat_template(
+            messages[:assistant_idx],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        full_text = self.tokenizer.apply_chat_template(
+            messages[:assistant_idx + 1],
+            tokenize=False,
+            add_generation_prompt=False,
         )
 
-        labels = batch["input_ids"].clone()
-        labels[batch["attention_mask"] == 0] = -100
-        batch["labels"] = labels
-        return batch
+        prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+        full_ids = self.tokenizer(full_text, add_special_tokens=False)["input_ids"]
+        if full_ids[:len(prompt_ids)] != prompt_ids:
+            return None
+
+        completion_ids = full_ids[len(prompt_ids):]
+        if not completion_ids:
+            return None
+
+        if len(prompt_ids) + len(completion_ids) <= self.max_length:
+            input_ids = prompt_ids + completion_ids
+            return input_ids, input_ids.copy()
+
+        if len(completion_ids) >= self.max_length:
+            prompt_budget = min(len(prompt_ids), max(1, self.max_length // 4))
+            completion_budget = self.max_length - prompt_budget
+        else:
+            prompt_budget = self.max_length - len(completion_ids)
+            completion_budget = len(completion_ids)
+
+        input_ids = prompt_ids[-prompt_budget:] + completion_ids[:completion_budget]
+        return input_ids, input_ids.copy()
+
+    def _format_feature(self, feature: Dict[str, Any]) -> tuple[List[int], List[int]]:
+        chat_ids_and_labels = self._format_chat_feature(feature)
+        if chat_ids_and_labels is not None:
+            return chat_ids_and_labels
+
+        text = format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
+        input_ids = self.tokenizer(
+            text,
+            truncation=True,
+            max_length=self.max_length,
+            add_special_tokens=True,
+        )["input_ids"]
+        return input_ids, input_ids.copy()
+
+    def _pad_batch(self, encoded_features: List[tuple[List[int], List[int]]]) -> Dict[str, torch.Tensor]:
+        batch_size = len(encoded_features)
+        max_length = max(len(input_ids) for input_ids, _ in encoded_features)
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.eos_token_id
+        if pad_token_id is None:
+            raise ValueError("TargetLanguageCausalLMCollator requires a pad_token_id or eos_token_id.")
+
+        input_ids = torch.full((batch_size, max_length), pad_token_id, dtype=torch.long)
+        attention_mask = torch.zeros((batch_size, max_length), dtype=torch.long)
+        labels = torch.full((batch_size, max_length), -100, dtype=torch.long)
+
+        for row_idx, (row_input_ids, row_labels) in enumerate(encoded_features):
+            row_len = len(row_input_ids)
+            input_ids[row_idx, :row_len] = torch.tensor(row_input_ids, dtype=torch.long)
+            attention_mask[row_idx, :row_len] = 1
+            labels[row_idx, :row_len] = torch.tensor(row_labels, dtype=torch.long)
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
+
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        encoded_features = [self._format_feature(feature) for feature in features]
+        return self._pad_batch(encoded_features)
+
+
+def _load_cached_parallel_dataset(language: str, data_limit=None, required=False):
+    cached_dataset_path = filtered_parallel_dataset_path(language)
+    if not cached_dataset_path.exists():
+        if required:
+            raise FileNotFoundError(
+                f"No cached filtered dataset found for language '{language}' at {cached_dataset_path}. "
+                "Build it first with contrastive_training/build_filtered_parallel_dataset.py."
+            )
+        return None
+
+    print(f"Using cached filtered mixed dataset for {language}: {cached_dataset_path}")
+    dataset_dict = load_from_disk(str(cached_dataset_path))
+    train_dataset = dataset_dict["train"]
+    valid_dataset = dataset_dict["validation"]
+
+    metadata_path = cached_dataset_path / "filtered_dataset_metadata.json"
+    if metadata_path.exists():
+        import json
+        with open(metadata_path, "r") as file:
+            metadata = json.load(file)
+        src_key = metadata.get("source_key", "en")
+        tgt_key = metadata["target_key"]
+    else:
+        translation_keys = train_dataset[0]["translation"].keys()
+        src_key = "en" if "en" in translation_keys else next(iter(translation_keys))
+        tgt_key = next(key for key in translation_keys if key != src_key)
+
+    if data_limit:
+        train_dataset = train_dataset.select(range(min(data_limit, len(train_dataset))))
+        valid_dataset = valid_dataset.select(range(min(MIXED_PARALLEL_VALIDATION_LIMIT, len(valid_dataset))))
+
+    return train_dataset, valid_dataset, src_key, tgt_key
 
 
 def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable_cache=False):
     if dataset == "mixed":
+        cached_dataset = _load_cached_parallel_dataset(language, data_limit=data_limit, required=False)
+        if cached_dataset is None:
+            return cached_dataset
         return load_mixed_parallel_dataset(language, data_limit)
     elif dataset == "opus":
         tgt_lang = opus_language_code(language)

@@ -121,7 +121,7 @@ class VLLMWrapper:
 
 def is_qwen3_model(model_path: str) -> bool:
     lowered_path = model_path.lower()
-    if "qwen3" in lowered_path:
+    if "qwen3" in lowered_path or "marco" in lowered_path:
         return True
 
     config_path = Path(model_path) / "config.json"
@@ -217,6 +217,9 @@ def evaluate_model(
     max_model_len = 4096
     if "te" in selected_languages:
         max_model_len = 7000
+        print(f"Using max_model_len={max_model_len} for languages: {selected_languages}")
+    elif "bn" in selected_languages:
+        max_model_len = 5000
         print(f"Using max_model_len={max_model_len} for languages: {selected_languages}")
 
     vllm_wrapper = build_vllm_wrapper(

@@ -522,7 +522,8 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         # Clone the views to prevent inplace backward modification errors from FSDP
         masked_router_logits_tgt = masked_router_logits_tgt.clone()
         masked_router_logits_src = masked_router_logits_src.clone()
-        logits_tgt = logits_tgt.clone()
+        if getattr(self, "is_fsdp_enabled", False):
+            logits_tgt = logits_tgt.clone()
 
 
         shift_logits_tgt = logits_tgt[..., :-1, :].contiguous()

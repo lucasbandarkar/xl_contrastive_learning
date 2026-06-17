@@ -1,9 +1,13 @@
 import json
+import os
 from datasets import Dataset, load_dataset
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 MIXED_PARALLEL_VALIDATION_LIMIT = 1000
+FILTERED_PARALLEL_DATASET_ROOT = Path(
+    os.environ.get("FILTERED_PARALLEL_DATASET_ROOT", "/data2/lucasbandarkar/filtered_parallel_datasets")
+)
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -19,6 +23,12 @@ LANGUAGE_NAMES = {
     "si": "Sinhala",
     "yo": "Yoruba",
     "zu": "Zulu",
+}
+
+MAX_LENGTH_BY_LANGUAGE = {
+    "kan": 640,
+    "sin": 512,
+    "ben": 512,
 }
 
 OPUS_LANGUAGE_CODES = {
@@ -220,6 +230,10 @@ def canonical_mixed_language(language: str) -> str:
 
     supported = ", ".join(sorted(MIXED_LANGUAGE_CONFIGS))
     raise ValueError(f"Unsupported mixed language '{language}'. Supported languages: {supported}")
+
+
+def filtered_parallel_dataset_path(language: str) -> Path:
+    return FILTERED_PARALLEL_DATASET_ROOT / canonical_mixed_language(language)
 
 
 def opus_split_name(tgt_lang: str) -> str:

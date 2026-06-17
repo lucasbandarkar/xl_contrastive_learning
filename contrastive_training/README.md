@@ -6,7 +6,7 @@ uv option:
 ```
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
-CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -m granite -f 1 --disable_cache --no-checkpoint
+CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -m granite -f 1 --no-checkpoint
 ```
 
 Packed training:
@@ -44,6 +44,8 @@ conda activate xlcl
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 pip install -r xlcl_requirements.txt
 pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
+pip install liger-kernel==0.8.0
+MAX_JOBS=4 python -m pip install flash-attn==2.8.3 --no-build-isolation
 ```
 
 For H100s, the 12.6 cuda and nvcc toolkit required me to start over:
@@ -53,6 +55,8 @@ conda activate xlcl
 uv pip install torch==2.10.0+cu126 torchvision --index-url https://download.pytorch.org/whl/cu126
 uv pip install -r xlcl_requirements.txt
 uv pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
+uv pip install liger-kernel==0.8.0
+MAX_JOBS=4 uv pip install flash-attn==2.8.3 --no-build-isolation
 ```
 
 And then: `CUDA_VISIBLE_DEVICES="7" accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t`

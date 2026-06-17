@@ -1,0 +1,30 @@
+{
+    "belebele": {
+        "belebele_ben_Beng": 0.62
+    },
+    "flores": {
+        "bn": 26.5
+    },
+    "global_mmlu_medical": {
+        "bn": 0.445
+    },
+    "global_piqa": {
+        "global_piqa_completions_ben_beng": 0.55
+    },
+    "include": {
+        "include_base_44_bengali": 0.405,
+        "include_base_44_bengali_few_shot_og_arts_humanities": 0.331,
+        "include_base_44_bengali_few_shot_og_general_knowledge": 0.44,
+        "include_base_44_bengali_few_shot_og_professional_certification": 0.428,
+        "include_base_44_bengali_few_shot_og_stem": 0.46
+    },
+    "mgsm": {
+        "bn": 0.26
+    },
+    "mmlu_prox": {
+        "mmlu_prox_bn": 0.029637760702524697
+    },
+    "multiloko": {
+        "bn": 0.048
+    }
+}

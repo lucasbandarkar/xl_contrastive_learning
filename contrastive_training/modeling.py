@@ -27,6 +27,7 @@ NICKNAME_TO_MODEL_MAP = {
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
     "phi-mini" : "microsoft/Phi-mini-MoE-instruct",
     "granite": "ibm-granite/granite-4.0-h-tiny",
+    "marco": "AIDC-AI/Marco-Nano-Instruct"
 }
 
 
@@ -59,7 +60,11 @@ def load_models_legacy(model_name, max_layer=None, fsdp=False, is_aws=False):
     else: ## maybe model is a checkpoint address
         return True
 
+    config = AutoConfig.from_pretrained(model_name, trust_remote_code=False)
     model_kwargs = {"dtype": torch.bfloat16}
+    if config.model_type != "gpt_oss":
+        model_kwargs["attn_implementation"] = "flash_attention_2"
+
     model = _load_model_from_pretrained(
         model_name,
         max_layer=max_layer,

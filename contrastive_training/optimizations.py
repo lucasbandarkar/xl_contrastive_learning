@@ -21,7 +21,6 @@ TORCHTITAN_INCOMPATIBLE_MODEL_IDS = {
 }
 FLASH_ATTN3_MODEL_TYPES = {
     "glm4_moe",
-    "gpt_oss",
     "granite",
     "granitemoehybrid",
     "nemotron",

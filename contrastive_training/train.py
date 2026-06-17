@@ -21,7 +21,7 @@ import huggingface_hub
 TRACKED_TRAINING_ARG_NAMES = (
     "per_device_train_batch_size", "per_device_eval_batch_size", "gradient_accumulation_steps", "auto_find_batch_size",
     "optim", "num_train_epochs", "max_steps", "learning_rate", "lr_scheduler_type", "warmup_steps", "neftune_noise_alpha",
-    "max_grad_norm", "adam_beta2", "bf16", "gradient_checkpointing", "use_cache",
+    "max_grad_norm", "adam_beta2", "bf16", "gradient_checkpointing", "use_cache", "use_liger_kernel",
 )
 
 
@@ -36,7 +36,7 @@ def create_training_args(
         num_gpus=1,
         is_aws=False,
         freezing_mode=0,
-        use_model_cache=False,
+        use_liger_kernel=False,
         save_checkpoints=True,
     ) -> TrainingArguments:
     model_config = get_model_config(model_nickname)
@@ -73,7 +73,8 @@ def create_training_args(
         per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps= grad_accum_steps,
         auto_find_batch_size=use_auto_batch_size,
-        use_cache=use_model_cache,
+        use_cache=False,
+        use_liger_kernel=use_liger_kernel,
         # optim='adafactor',
         optim='adamw_torch_fused', # more memory, but faster
         num_train_epochs=1,
@@ -284,13 +285,14 @@ def main(args):
     freezing_mode = args.freezing_mode
     if freezing_mode is None:
         freezing_mode = model_config.get("freezing_mode", 0)
+    use_liger_kernel = args.no_optimizations
 
     model, tokenizer = load_models(
         args.nickname,
         max_layer=max_layer,
         fsdp=multi_gpu,
         is_aws=aws,
-        use_model_cache=not args.disable_cache,
+        use_model_cache=False,
         use_optimizations=not args.no_optimizations,
     )
 
@@ -299,7 +301,6 @@ def main(args):
         args.data,
         args.language,
         data_limit=data_limit,
-        disable_cache=args.disable_cache,
     )
 
     ckpt_suffix = "test" if args.test_run else f"{args.samples}k"
@@ -316,7 +317,7 @@ def main(args):
             num_gpus=num_gpus,
             is_aws=aws,
             freezing_mode=freezing_mode,
-            use_model_cache=not args.disable_cache,
+            use_liger_kernel=use_liger_kernel,
             save_checkpoints=not args.no_checkpoint,
         )
         trainer = ContrastiveTrainer(
@@ -339,7 +340,7 @@ def main(args):
             num_gpus=num_gpus,
             is_aws=aws,
             freezing_mode=freezing_mode,
-            use_model_cache=not args.disable_cache,
+            use_liger_kernel=use_liger_kernel,
             save_checkpoints=not args.no_checkpoint,
         )
         trainer = TargetLMTrainer(
@@ -359,7 +360,7 @@ def main(args):
             num_gpus=num_gpus,
             is_aws=aws,
             freezing_mode=freezing_mode,
-            use_model_cache=not args.disable_cache,
+            use_liger_kernel=use_liger_kernel,
             save_checkpoints=not args.no_checkpoint,
         )
         training_args.group_by_length = True # only possible for translation sft
@@ -371,14 +372,12 @@ def main(args):
                 tokenizer,
                 key_src,
                 key_tgt,
-                disable_cache=args.disable_cache,
             ),
             eval_dataset=format_translation_sft_dataset(
                 dataset_valid,
                 tokenizer,
                 key_src,
                 key_tgt,
-                disable_cache=args.disable_cache,
             ),
             processing_class=tokenizer,
         )
@@ -392,7 +391,7 @@ def main(args):
             num_gpus=num_gpus,
             is_aws=aws,
             freezing_mode=freezing_mode,
-            use_model_cache=not args.disable_cache,
+            use_liger_kernel=use_liger_kernel,
             save_checkpoints=not args.no_checkpoint,
         )
         trainer = ContrastiveLMTrainer(
@@ -479,11 +478,10 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--freezing_mode', type=int, default=0, help="0 trains early layers; 1 trains only router/gate weights; 2 trains all layers")
     parser.add_argument('-t', '--test_run', action="store_true", help="passed if you want to just do a test run with small data size")
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
-    parser.add_argument('-s', "--samples", type=int, default=10, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
+    parser.add_argument('-s', "--samples", type=int, default=200, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
     parser.add_argument('-a', '--contrastive_alpha', type=float, default=1.0, help="weight for contrastive loss in contrastive training modes")
     parser.add_argument('-r', '--learning_rate', type=float, default=1e-6, help="training learning rate")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
-    parser.add_argument('--disable_cache', action="store_true", help="disable HF model use_cache and avoid dataset map cache where supported")
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
     parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence")
@@ -491,7 +489,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--baseline_mode',
         choices=["translation_sft", "target_lm", "frozen_lm"],
-        default="translation_sft",
+        default="target_lm",
         help="which baseline to run when --baseline is passed",
     )
     args = parser.parse_args()

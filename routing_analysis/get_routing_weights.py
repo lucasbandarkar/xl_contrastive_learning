@@ -39,6 +39,7 @@ NICKNAME_TO_MODEL_MAP = {
     "ernie": "baidu/ERNIE-4.5-21B-A3B-PT",
     "granite": "ibm-granite/granite-4.0-h-tiny",
     "marco": "AIDC-AI/Marco-Mini-Global-Base",
+    "marco_nano": "AIDC-AI/Marco-Nano-Instruct"
 }
 MODEL_CONFIGS = {
     "qwen3_30b": [48, 128, 8, {}], # [num_layers, num_experts, num_experts_active_per_tok, special_gating_function_params]
@@ -56,7 +57,8 @@ MODEL_CONFIGS = {
     "phi-tiny": [32, 16, 2],
     "ernie": [28, 64, 6, {}], # has one dense layer
     "granite": [40, 64, 6, {}],
-    "marco": [24, 256, 8, {}]
+    "marco": [28, 256, 8, {}],
+    "marco_nano": [28, 232, 8, {}]
 }
 DATA_FOLDER = "/data2/lucasbandarkar/moe/collected_routing_data/"
 

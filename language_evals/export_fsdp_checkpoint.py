@@ -75,7 +75,49 @@ def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
 
 def normalize_exported_config_for_vllm(output_dir: Path):
     normalize_gpt_oss_dequantized_config_for_vllm(output_dir)
+    normalize_qwen3_moe_config_for_vllm(output_dir)
     normalize_qwen3_moe_experts_for_vllm(output_dir)
+    normalize_tokenizer_config_for_transformers(output_dir)
+
+
+def normalize_qwen3_moe_config_for_vllm(output_dir: Path):
+    config_path = output_dir / "config.json"
+    if not config_path.exists():
+        return
+
+    with config_path.open() as f:
+        config = json.load(f)
+
+    if (
+        config.get("model_type") in {"qwen3_moe", "qwen3_5_moe"}
+        and "num_experts" not in config
+        and "num_local_experts" in config
+    ):
+        config["num_experts"] = config["num_local_experts"]
+        with config_path.open("w") as f:
+            json.dump(config, f, indent=2)
+            f.write("\n")
+
+
+def normalize_tokenizer_config_for_transformers(output_dir: Path):
+    tokenizer_config_path = output_dir / "tokenizer_config.json"
+    if not tokenizer_config_path.exists():
+        return
+
+    with tokenizer_config_path.open() as f:
+        tokenizer_config = json.load(f)
+
+    extra_special_tokens = tokenizer_config.get("extra_special_tokens")
+    if not isinstance(extra_special_tokens, list):
+        return
+
+    tokenizer_config["extra_special_tokens"] = {
+        f"{token.strip('<|>')}_token": token
+        for token in extra_special_tokens
+    }
+    with tokenizer_config_path.open("w") as f:
+        json.dump(tokenizer_config, f, indent=2)
+        f.write("\n")
 
 
 def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
@@ -478,6 +520,7 @@ def export_checkpoint(checkpoint_dir: Path, base_model: str, output_dir: Path):
     print(f"Writing tokenizer from {base_model}")
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     tokenizer.save_pretrained(output_dir)
+    normalize_tokenizer_config_for_transformers(output_dir)
 
     tokenizer_source = checkpoint_dir
     if not (tokenizer_source / "chat_template.jinja").exists():
