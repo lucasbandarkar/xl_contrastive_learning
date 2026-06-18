@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import torch
 
@@ -9,7 +9,8 @@ from parallel_dataset import PACKED_SEQUENCE_TARGET
 @dataclass
 class PackedForwardOutput:
     router_logits: torch.Tensor
-    hidden_states: torch.Tensor
+    hidden_states: Optional[torch.Tensor] = None
+    logits: Optional[torch.Tensor] = None
 
 
 def tensor_to_int(value: Union[torch.Tensor, int]) -> int:
@@ -84,13 +85,22 @@ def normalize_packed_router_logits(raw_router_logits, num_tokens: int, min_layer
     return torch.stack(router_layers, dim=0)
 
 
-def get_packed_forward(model, inputs: dict[str, Union[torch.Tensor, Any]], min_layer: int, max_layer: int) -> PackedForwardOutput:
+def get_packed_forward(
+    model,
+    inputs: dict[str, Union[torch.Tensor, Any]],
+    min_layer: int,
+    max_layer: int,
+    use_split_forward: bool = True,
+) -> PackedForwardOutput:
     attn_implementation = getattr(model.config, "_attn_implementation", None)
     if attn_implementation != "flash_attention_2":
         raise ValueError(
             "Packed training requires flash_attention_2 so cu_seq_lens isolate sequences. "
             f"Current attention implementation: {attn_implementation!r}."
         )
+
+    if not use_split_forward:
+        return packed_full_model_forward(model, inputs, min_layer, max_layer)
 
     if model.config.model_type == "granitemoehybrid":
         hidden_states = granite_packed_split_forward(model, inputs, max_layer)
@@ -120,6 +130,44 @@ def get_packed_forward(model, inputs: dict[str, Union[torch.Tensor, Any]], min_l
         max_layer=max_layer,
     )
     return PackedForwardOutput(router_logits=router_logits, hidden_states=hidden_states)
+
+
+def packed_full_model_forward(
+    model,
+    inputs: dict[str, Union[torch.Tensor, Any]],
+    min_layer: int,
+    max_layer: int,
+) -> PackedForwardOutput:
+    """Packed forward that enters through the top-level module, which FSDP can unshard."""
+    common_kwargs = {
+        "input_ids": inputs["input_ids"],
+        "position_ids": inputs["position_ids"],
+        "attention_mask": None,
+        "use_cache": False,
+        "cu_seq_lens_q": inputs["cu_seq_lens_q"],
+        "cu_seq_lens_k": inputs["cu_seq_lens_k"],
+        "max_length_q": tensor_to_int(inputs["max_length_q"]),
+        "max_length_k": tensor_to_int(inputs["max_length_k"]),
+    }
+
+    if model.config.model_type == "granitemoehybrid":
+        outputs = model(**common_kwargs)
+        raw_router_logits = tuple(layer.block_sparse_moe.router_logits for layer in model.model.layers)
+    else:
+        target_positions = torch.arange(target_token_count(inputs), device=inputs["input_ids"].device)
+        outputs = model(output_router_logits=True, logits_to_keep=target_positions, **common_kwargs)
+        raw_router_logits = getattr(outputs, "router_logits", None)
+
+    router_logits = normalize_packed_router_logits(
+        raw_router_logits,
+        num_tokens=inputs["input_ids"].size(1),
+        min_layer=min_layer,
+        max_layer=max_layer,
+    )
+    return PackedForwardOutput(
+        router_logits=router_logits,
+        logits=select_packed_target_tokens(outputs.logits, inputs),
+    )
 
 
 def qwen3_moe_sparse_layer_indices(layers) -> list[int]:

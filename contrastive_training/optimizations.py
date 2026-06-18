@@ -11,13 +11,20 @@ import torch
 from transformers import AutoConfig
 from transformers.integrations.hub_kernels import allow_all_hub_kernels
 from liger_kernel.transformers.monkey_patch import MODEL_TYPE_TO_APPLY_LIGER_FN, _apply_liger_kernel
-from torchtitan.models.moe import MoE, MoEArgs
+try:
+    from torchtitan.models.moe import MoE, MoEArgs
+except ImportError:
+    MoE = None
+    MoEArgs = None
 
 logger = logging.getLogger(__name__)
 FLASH_ATTN2_IMPLEMENTATION = "flash_attention_2"
 TORCHTITAN_MOE_MODEL_TYPES = {"qwen3_moe", "glm4_moe"}
 TORCHTITAN_INCOMPATIBLE_MODEL_IDS = {
     "PrimeIntellect/qwen3-moe-tiny": "checkpoint uses fused gate_up_proj/down_proj expert tensors, not TorchTitan's split w1/w2/w3 Qwen3 layout",
+    "Qwen/Qwen3-30B-A3B": "checkpoint keys do not map to TorchTitan MoE keys; experts/router load as missing/unexpected without a state-dict conversion hook",
+    "Qwen/Qwen3-30B-A3B-Instruct-2507": "checkpoint keys do not map to TorchTitan MoE keys; experts/router load as missing/unexpected without a state-dict conversion hook",
+    "AIDC-AI/Marco-Nano-Instruct": "checkpoint keys do not map to TorchTitan MoE keys; experts/router load as missing/unexpected without a state-dict conversion hook",
 }
 FLASH_ATTN3_MODEL_TYPES = {
     "glm4_moe",
@@ -183,17 +190,22 @@ def apply_torchtitan_moe(model_type: str, model_name: str | None = None) -> bool
         )
         return False
 
-    if model_type == "qwen3_moe":
-        _apply_qwen3_torchtitan_moe()
-    elif model_type == "glm4_moe":
-        _apply_glm4_torchtitan_moe()
-    else:
+    if model_type not in TORCHTITAN_MOE_MODEL_TYPES:
         logger.info(
             "TorchTitan MoE is not available for model type `%s`; supported model types are %s.",
             model_type,
             sorted(TORCHTITAN_MOE_MODEL_TYPES),
         )
         return False
+
+    if MoE is None or MoEArgs is None:
+        logger.info("TorchTitan is not installed; continuing without grouped-GEMM MoE patches.")
+        return False
+
+    if model_type == "qwen3_moe":
+        _apply_qwen3_torchtitan_moe()
+    elif model_type == "glm4_moe":
+        _apply_glm4_torchtitan_moe()
 
     logger.info("Applied TorchTitan grouped-GEMM MoE for model type `%s`.", model_type)
     return True

@@ -94,7 +94,7 @@ class PackedParallelDataCollator:
         self.tokenizer = tokenizer
         self.src_key = src_language_key
         self.tgt_key = tgt_language_key
-        self.max_length = max_length or MAX_LENGTH
+        self.max_length = resolve_max_length(tgt_language_key, max_length)
 
     def _tokenize(self, sentences: List[str]) -> List[List[int]]:
         encoded = self.tokenizer(
@@ -107,8 +107,14 @@ class PackedParallelDataCollator:
         return encoded["input_ids"]
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        tgt_sentences = [feature["translation"][self.tgt_key] for feature in features]
-        src_sentences = [feature["translation"][self.src_key] for feature in features]
+        tgt_sentences = [
+            format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
+            for feature in features
+        ]
+        src_sentences = [
+            format_feature_text(feature, self.src_key, "src", self.tokenizer)
+            for feature in features
+        ]
         all_sequences = self._tokenize(tgt_sentences + src_sentences)
         batch_size = len(features)
         tgt_sequences = all_sequences[:batch_size]
@@ -327,7 +333,7 @@ def _load_cached_parallel_dataset(language: str, data_limit=None, required=False
 def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable_cache=False):
     if dataset == "mixed":
         cached_dataset = _load_cached_parallel_dataset(language, data_limit=data_limit, required=False)
-        if cached_dataset is None:
+        if cached_dataset is not None:
             return cached_dataset
         return load_mixed_parallel_dataset(language, data_limit)
     elif dataset == "opus":

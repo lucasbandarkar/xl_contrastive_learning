@@ -74,10 +74,34 @@ def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
 
 
 def normalize_exported_config_for_vllm(output_dir: Path):
+    normalize_rope_theta_for_vllm(output_dir)
     normalize_gpt_oss_dequantized_config_for_vllm(output_dir)
     normalize_qwen3_moe_config_for_vllm(output_dir)
     normalize_qwen3_moe_experts_for_vllm(output_dir)
     normalize_tokenizer_config_for_transformers(output_dir)
+
+
+def normalize_rope_theta_for_vllm(output_dir: Path):
+    config_path = output_dir / "config.json"
+    if not config_path.exists():
+        return
+
+    with config_path.open() as f:
+        config = json.load(f)
+
+    rope_parameters = config.get("rope_parameters")
+    if (
+        "rope_theta" in config
+        or not isinstance(rope_parameters, dict)
+        or "rope_theta" not in rope_parameters
+    ):
+        return
+
+    config["rope_theta"] = rope_parameters["rope_theta"]
+    with config_path.open("w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    print(f"Added top-level rope_theta={config['rope_theta']} for vLLM compatibility")
 
 
 def normalize_qwen3_moe_config_for_vllm(output_dir: Path):

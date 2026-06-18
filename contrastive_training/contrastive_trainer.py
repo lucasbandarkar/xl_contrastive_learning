@@ -390,6 +390,24 @@ def packed_target_lm_loss(
     lm_loss = loss_fct(selected_logits.float(), selected_labels)
     return lm_loss, selected_logits, selected_labels
 
+
+def packed_target_lm_loss_from_logits(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    loss_fct: torch.nn.Module,
+) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+    """Compute packed target LM loss from logits already produced by model.forward."""
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    valid_lm_tokens = shift_labels.ne(-100)
+    if not valid_lm_tokens.any():
+        return shift_logits.sum() * 0.0, None, shift_labels[valid_lm_tokens]
+
+    selected_logits = shift_logits[valid_lm_tokens]
+    selected_labels = shift_labels[valid_lm_tokens]
+    lm_loss = loss_fct(selected_logits.float(), selected_labels)
+    return lm_loss, selected_logits, selected_labels
+
 class TargetLMTrainer(FreezableTrainerMixin, Trainer):
     pass
 
@@ -465,16 +483,29 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         inputs: dict[str, Union[torch.Tensor, Any]],
         return_outputs: bool = False,
     ):
-        router_outputs = get_packed_forward(model, inputs, self.min_layer, self.max_layer)
+        router_outputs = get_packed_forward(
+            model,
+            inputs,
+            self.min_layer,
+            self.max_layer,
+            use_split_forward=not getattr(self, "is_fsdp_enabled", False),
+        )
         logits_scaling = getattr(model.config, "logits_scaling", 1.0)
         target_labels = select_packed_target_positions(inputs["labels"], inputs)
-        lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss(
-            router_outputs.hidden_states,
-            target_labels,
-            model.lm_head,
-            self.lm_loss_fct,
-            logits_scaling=logits_scaling,
-        )
+        if router_outputs.logits is not None:
+            lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss_from_logits(
+                router_outputs.logits,
+                target_labels,
+                self.lm_loss_fct,
+            )
+        else:
+            lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss(
+                router_outputs.hidden_states,
+                target_labels,
+                model.lm_head,
+                self.lm_loss_fct,
+                logits_scaling=logits_scaling,
+            )
 
         contrastive_loss_val = packed_contrastive_loss_fn(
             router_outputs.router_logits,

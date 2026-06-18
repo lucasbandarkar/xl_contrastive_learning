@@ -46,6 +46,7 @@ pip install -r xlcl_requirements.txt
 pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
 pip install liger-kernel==0.8.0
 MAX_JOBS=4 python -m pip install flash-attn==2.8.3 --no-build-isolation
+pip install --upgrade-strategy only-if-needed torchtitan==0.2.2 ## doesn't work with any models, so doing nothing for now
 ```
 
 For H100s, the 12.6 cuda and nvcc toolkit required me to start over:
@@ -57,6 +58,8 @@ uv pip install -r xlcl_requirements.txt
 uv pip install causal-conv1d==1.6.1 mamba-ssm==2.3.1 --no-build-isolation
 uv pip install liger-kernel==0.8.0
 MAX_JOBS=4 uv pip install flash-attn==2.8.3 --no-build-isolation
+pip install --upgrade-strategy only-if-needed torchtitan==0.2.2
+## doesn't work with any models, so doing nothing for now
 ```
 
 And then: `CUDA_VISIBLE_DEVICES="7" accelerate launch --config_file accelerate_config_1gpu.yaml train.py -l pes -t`

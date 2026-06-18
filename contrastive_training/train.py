@@ -259,8 +259,6 @@ def create_output_directory_name(args, size_suffix):
             training_details += "_routers"
         elif args.freezing_mode == 2:
             training_details += "_nofreeze"
-        if args.packed:
-            training_details += "_packed"
 
     return f"{prefix}_{training_details}_{size_suffix}"
 
@@ -272,10 +270,6 @@ def is_aws_server():
 def main(args):
     num_gpus = torch.cuda.device_count()
     multi_gpu = num_gpus > 1
-    if args.packed and (args.baseline or args.earlyexit):
-        raise ValueError("--packed is supported only for full ContrastiveLMTrainer runs.")
-    if args.packed and args.no_optimizations:
-        raise ValueError("--packed requires optimized model loading so Granite uses flash_attention_2.")
     
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
@@ -285,7 +279,7 @@ def main(args):
     freezing_mode = args.freezing_mode
     if freezing_mode is None:
         freezing_mode = model_config.get("freezing_mode", 0)
-    use_liger_kernel = args.no_optimizations
+    use_liger_kernel = bool(model_config.get("use_liger_kernel", False)) and not args.no_optimizations
 
     model, tokenizer = load_models(
         args.nickname,
@@ -484,7 +478,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
-    parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence")
+    parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence for full contrastive LM training")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',
@@ -499,5 +493,10 @@ if __name__ == "__main__":
 
     if args.min_layer > args.max_layer:
         raise ValueError(f"min_layer ({args.min_layer}) cannot be greater than max_layer ({args.max_layer}).")
+
+    if args.packed and args.baseline:
+        parser.error("--packed is not implemented for --baseline runs. Remove --baseline for packed contrastive training, or remove --packed for target-LM/frozen-LM baselines.")
+    if args.packed and args.earlyexit:
+        parser.error("--packed is not implemented for --earlyexit contrastive-only runs. Use full contrastive LM training, or remove --packed.")
 
     main(args)

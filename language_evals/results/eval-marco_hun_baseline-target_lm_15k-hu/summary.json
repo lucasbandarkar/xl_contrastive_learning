@@ -1,0 +1,133 @@
+{
+    "belebele": {
+        "belebele_hun_Latn": 0.458
+    },
+    "flores": {
+        "hu": 10.916
+    },
+    "global_piqa": {
+        "global_piqa_completions_hun_latn": 0.57
+    },
+    "include": {
+        "include_base_44_hungarian": 0.342,
+        "include_base_44_hungarian_few_shot_og_applied_science": 0.337,
+        "include_base_44_hungarian_few_shot_og_social_science": 0.348,
+        "include_base_44_hungarian_few_shot_og_stem": 0.36
+    },
+    "mgsm": {
+        "hu": 0.124
+    },
+    "mmlu_prox": {
+        "mmlu_prox_hu": 0.0
+    },
+    "training_metadata": {
+        "created_at_utc": "2026-06-17T23:34:46.999489+00:00",
+        "run": {
+            "output_dir_name": "marco_hun_baseline-target_lm_15k",
+            "resume_from_checkpoint": null
+        },
+        "training_args": {
+            "per_device_train_batch_size": 16,
+            "per_device_eval_batch_size": 16,
+            "gradient_accumulation_steps": 2,
+            "auto_find_batch_size": false,
+            "optim": "OptimizerNames.ADAMW_TORCH_FUSED",
+            "num_train_epochs": 1,
+            "max_steps": -1,
+            "learning_rate": 5e-07,
+            "lr_scheduler_type": "SchedulerType.WARMUP_STABLE_DECAY",
+            "warmup_steps": 312,
+            "neftune_noise_alpha": null,
+            "max_grad_norm": 1.0,
+            "adam_beta2": 0.99,
+            "bf16": false,
+            "gradient_checkpointing": false,
+            "use_cache": false,
+            "use_liger_kernel": true
+        },
+        "base_model": "marco",
+        "data": {
+            "source": "mixed",
+            "language": "hun",
+            "data_limit": 15000,
+            "source_key": "en",
+            "target_key": "hu",
+            "train_size": 15000,
+            "valid_size": 1000,
+            "train_composition": {
+                "source_counts": {
+                    "opus100": 7500,
+                    "nllb": 7500
+                },
+                "example_type_counts": {
+                    "parallel_text": 15000
+                }
+            },
+            "valid_composition": {
+                "source_counts": {
+                    "opus100": 500,
+                    "nllb": 500
+                },
+                "example_type_counts": {
+                    "parallel_text": 1000
+                }
+            }
+        },
+        "training_mode": {
+            "baseline": true,
+            "baseline_mode": "target_lm",
+            "earlyexit": false,
+            "packed": false,
+            "min_layer": 14,
+            "max_layer": 14,
+            "freezing_mode": 0,
+            "contrastive_alpha": 1.0
+        },
+        "loss_tracking": {
+            "train_loss": "training objective",
+            "eval_loss": "lm_loss"
+        },
+        "environment": {
+            "num_gpus": 1,
+            "multi_gpu": false,
+            "is_aws": false,
+            "cuda_visible_devices": "7",
+            "torch_version": "2.11.0+cu126"
+        },
+        "performance": {
+            "total_steps": 469,
+            "train_runtime_seconds": 566.9481,
+            "seconds_per_step": 1.2088445628997866,
+            "train_samples_per_second": 26.457,
+            "train_steps_per_second": 0.827,
+            "train_loss": 3.343496098955557,
+            "total_flos": 3.656728522417766e+16
+        },
+        "log_history": [
+            {
+                "loss": 3.3508144280849357,
+                "grad_norm": 33.0,
+                "learning_rate": 4.983974358974358e-07,
+                "epoch": 0.6652452025586354,
+                "step": 312
+            },
+            {
+                "eval_loss": 3.365507125854492,
+                "eval_runtime": 2.8112,
+                "eval_samples_per_second": 355.725,
+                "eval_steps_per_second": 22.411,
+                "epoch": 0.6652452025586354,
+                "step": 312
+            },
+            {
+                "train_runtime": 566.9481,
+                "train_samples_per_second": 26.457,
+                "train_steps_per_second": 0.827,
+                "total_flos": 3.656728522417766e+16,
+                "train_loss": 3.343496098955557,
+                "epoch": 1.0,
+                "step": 469
+            }
+        ]
+    }
+}
