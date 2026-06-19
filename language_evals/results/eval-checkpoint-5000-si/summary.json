@@ -1,18 +1,18 @@
 {
     "belebele": {
-        "belebele_sin_Sinh": 0.35
+        "belebele_sin_Sinh": 0.346
     },
     "flores": {
-        "si": 9.205
+        "si": 9.578
     },
     "global_mmlu_medical": {
-        "si": 0.312
+        "si": 0.302
     },
     "global_piqa": {
-        "global_piqa_completions_sin_sinh": 0.53
+        "global_piqa_completions_sin_sinh": 0.52
     },
     "mgsm": {
-        "si": 0.02
+        "si": 0.012
     },
     "training_metadata": {
         "created_at_utc": "2026-06-18T21:03:35.781324+00:00",
