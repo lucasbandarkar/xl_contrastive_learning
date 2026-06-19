@@ -8,6 +8,7 @@ from parallel_dataset import (
     PackedParallelDataCollator,
     TargetLanguageCausalLMCollator,
     format_translation_sft_dataset,
+    resolve_max_length,
 )
 from transformers import TrainingArguments
 import json
@@ -155,6 +156,7 @@ def build_training_metadata(
             "baseline_mode": args.baseline_mode if args.baseline else None,
             "earlyexit": args.earlyexit,
             "packed": args.packed,
+            "packed_sequence_length": args.packed_sequence_length if args.packed else None,
             "min_layer": args.min_layer,
             "max_layer": args.max_layer,
             "freezing_mode": freezing_mode,
@@ -259,6 +261,8 @@ def create_output_directory_name(args, size_suffix):
             training_details += "_routers"
         elif args.freezing_mode == 2:
             training_details += "_nofreeze"
+        if args.packed:
+            training_details += "_packed"
 
     return f"{prefix}_{training_details}_{size_suffix}"
 
@@ -270,6 +274,10 @@ def is_aws_server():
 def main(args):
     num_gpus = torch.cuda.device_count()
     multi_gpu = num_gpus > 1
+    if args.packed and (args.baseline or args.earlyexit):
+        raise ValueError("--packed is supported only for full ContrastiveLMTrainer runs.")
+    if args.packed and args.no_optimizations:
+        raise ValueError("--packed requires optimized model loading so the model uses flash_attention_2.")
     
     # Layers are one-indexed in the CLI, while the trainer/model use the same convention.
     # Partial model loading only needs the upper bound of the requested range.
@@ -376,10 +384,18 @@ def main(args):
             processing_class=tokenizer,
         )
     else:
+        packed_sequence_length = None
+        batch_size = args.batch_size
+        if args.packed:
+            batch_size = batch_size or get_configured_batch_size(model_config, "full", num_gpus, aws)
+            max_length = resolve_max_length(key_tgt, model_config.get("max_length"))
+            packed_sequence_length = args.packed_sequence_length or batch_size * max_length * 2
+            args.packed_sequence_length = packed_sequence_length
+
         training_args = create_training_args(
             args.nickname,
             output_dir=output_dir_name,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             learning_rate=args.learning_rate,
             test_run=args.test_run,
             num_gpus=num_gpus,
@@ -401,6 +417,7 @@ def main(args):
             min_layer=args.min_layer,
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
+            packed_token_budget=packed_sequence_length,
         )
 
     if args.baseline and args.baseline_mode == "frozen_lm":
@@ -479,6 +496,7 @@ if __name__ == "__main__":
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
     parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence for full contrastive LM training")
+    parser.add_argument('--packed_sequence_length', '--packed-sequence-length', type=int, default=None, help="max target+source tokens per packed batch")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',

@@ -6,11 +6,14 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 import re
+from functools import partial
 from types import MethodType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from torch.utils.data import DataLoader
 
 from packed_forward import get_packed_forward, select_packed_target_positions
-from parallel_dataset import PACKED_SEQUENCE_SOURCE, PACKED_SEQUENCE_TARGET
+from parallel_dataset import PACKED_SEQUENCE_SOURCE, PACKED_SEQUENCE_TARGET, PackedLengthBatchSampler, PackedParallelDataCollator
+from transformers.trainer_utils import seed_worker
 
 POSSIBLE_ROUTER_NAMES = [
     'mlp.router',
@@ -370,33 +373,11 @@ def _is_packed_batch(inputs: dict[str, Union[torch.Tensor, Any]]) -> bool:
 
 
 def packed_target_lm_loss(
-    hidden_states: torch.Tensor,
-    labels: torch.Tensor,
-    lm_head: torch.nn.Module,
-    loss_fct: torch.nn.Module,
-    logits_scaling: float = 1.0,
-) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
-    """Project only packed positions that contribute to target LM loss."""
-    shift_hidden_states = hidden_states[..., :-1, :].contiguous()
-    shift_labels = labels[..., 1:].contiguous()
-    valid_lm_tokens = shift_labels.ne(-100)
-    if not valid_lm_tokens.any():
-        return shift_hidden_states.sum() * 0.0, None, shift_labels[valid_lm_tokens]
-
-    selected_hidden_states = shift_hidden_states[valid_lm_tokens]
-    selected_labels = shift_labels[valid_lm_tokens]
-    selected_logits = lm_head(selected_hidden_states)
-    selected_logits = selected_logits / logits_scaling
-    lm_loss = loss_fct(selected_logits.float(), selected_labels)
-    return lm_loss, selected_logits, selected_labels
-
-
-def packed_target_lm_loss_from_logits(
     logits: torch.Tensor,
     labels: torch.Tensor,
     loss_fct: torch.nn.Module,
 ) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
-    """Compute packed target LM loss from logits already produced by model.forward."""
+    """Score only packed target positions that contribute to target LM loss."""
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
     valid_lm_tokens = shift_labels.ne(-100)
@@ -424,6 +405,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         max_layer,
         alpha_contrastive=1.0,
         scoring_func="softmax",
+        packed_token_budget=None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -432,6 +414,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         self.key_layer = self.min_layer
         self.alpha_contrastive = alpha_contrastive
         self.scoring_func = scoring_func
+        self.packed_token_budget = packed_token_budget
         self.eval_loss_key = "lm_loss_tgt"
         self.lm_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100) # Standard LM loss
 
@@ -439,6 +422,81 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
             patch_granite_router_logits(self.model)
         elif self.model.config.model_type == "qwen3_moe":
             patch_qwen3_moe_router_logits(self.model)
+
+    def _uses_packed_token_budget(self) -> bool:
+        return self.packed_token_budget is not None and isinstance(self.data_collator, PackedParallelDataCollator)
+
+    def _get_packed_dataloader(self, dataset, description: str, is_training: bool = False, dataloader_key: str | None = None):
+        packed_collator = self.data_collator
+
+        if isinstance(dataset, torch.utils.data.IterableDataset):
+            raise ValueError("Packed token-budget batching requires a dataset with __len__ and indexed access.")
+
+        should_fork = torch.backends.mps.is_available() and self.args.dataloader_num_workers > 1
+        batch_sampler = PackedLengthBatchSampler(
+            dataset,
+            packed_collator.tokenizer,
+            packed_collator.src_key,
+            packed_collator.tgt_key,
+            packed_collator.max_length,
+            self.packed_token_budget,
+            shuffle=is_training,
+            seed=self.args.seed,
+            drop_last=self.args.dataloader_drop_last,
+        )
+        dataloader_params = {
+            "batch_sampler": batch_sampler,
+            "collate_fn": packed_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+            "multiprocessing_context": "fork" if should_fork else None,
+            "prefetch_factor": self.args.dataloader_prefetch_factor,
+        }
+        if is_training:
+            dataloader_params["worker_init_fn"] = partial(
+                seed_worker,
+                num_workers=self.args.dataloader_num_workers,
+                rank=self.args.process_index,
+            )
+
+        dataloader = self.accelerator.prepare(DataLoader(dataset, **dataloader_params))
+        if dataloader_key is not None and self.args.dataloader_persistent_workers:
+            if hasattr(self, "_eval_dataloaders"):
+                self._eval_dataloaders[dataloader_key] = dataloader
+            else:
+                self._eval_dataloaders = {dataloader_key: dataloader}
+        return dataloader
+
+    def get_train_dataloader(self) -> DataLoader:
+        if not self._uses_packed_token_budget():
+            return super().get_train_dataloader()
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+        return self._get_packed_dataloader(self.train_dataset, "Training", is_training=True)
+
+    def get_eval_dataloader(self, eval_dataset: str | Any | None = None) -> DataLoader:
+        if not self._uses_packed_token_budget():
+            return super().get_eval_dataloader(eval_dataset)
+        if eval_dataset is None and self.eval_dataset is None:
+            raise ValueError("Trainer: evaluation requires an eval_dataset.")
+
+        dataloader_key = eval_dataset if isinstance(eval_dataset, str) else "eval"
+        if (
+            hasattr(self, "_eval_dataloaders")
+            and dataloader_key in self._eval_dataloaders
+            and self.args.dataloader_persistent_workers
+        ):
+            return self._eval_dataloaders[dataloader_key]
+
+        eval_dataset = (
+            self.eval_dataset[eval_dataset]
+            if isinstance(eval_dataset, str)
+            else eval_dataset
+            if eval_dataset is not None
+            else self.eval_dataset
+        )
+        return self._get_packed_dataloader(eval_dataset, "Evaluation", dataloader_key=dataloader_key)
 
     def lm_loss(self, shift_logits, shift_labels):
         valid_labels = shift_labels.ne(-100)
@@ -483,29 +541,13 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         inputs: dict[str, Union[torch.Tensor, Any]],
         return_outputs: bool = False,
     ):
-        router_outputs = get_packed_forward(
-            model,
-            inputs,
-            self.min_layer,
-            self.max_layer,
-            use_split_forward=not getattr(self, "is_fsdp_enabled", False),
-        )
-        logits_scaling = getattr(model.config, "logits_scaling", 1.0)
+        router_outputs = get_packed_forward(model, inputs, self.min_layer, self.max_layer)
         target_labels = select_packed_target_positions(inputs["labels"], inputs)
-        if router_outputs.logits is not None:
-            lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss_from_logits(
-                router_outputs.logits,
-                target_labels,
-                self.lm_loss_fct,
-            )
-        else:
-            lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss(
-                router_outputs.hidden_states,
-                target_labels,
-                model.lm_head,
-                self.lm_loss_fct,
-                logits_scaling=logits_scaling,
-            )
+        lm_loss_tgt, logits_tgt, lm_labels_tgt = packed_target_lm_loss(
+            router_outputs.logits,
+            target_labels,
+            self.lm_loss_fct,
+        )
 
         contrastive_loss_val = packed_contrastive_loss_fn(
             router_outputs.router_logits,

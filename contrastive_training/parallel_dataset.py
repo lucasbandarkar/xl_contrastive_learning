@@ -2,6 +2,7 @@ import sys, os
 from transformers import AutoTokenizer
 from datasets import load_dataset, load_from_disk
 import torch
+from torch.utils.data import Sampler
 from typing import List, Dict, Any, Optional
 
 from dataset_helpers import (
@@ -189,6 +190,95 @@ class PackedParallelDataCollator:
             "target_max_length_k": target_max_sequence_length,
             "target_token_count": target_total_tokens,
         }
+
+
+class PackedLengthBatchSampler(Sampler[list[int]]):
+    """Yield variable-size batches capped by total packed target+source tokens."""
+
+    def __init__(
+        self,
+        dataset,
+        tokenizer: AutoTokenizer,
+        src_language_key,
+        tgt_language_key,
+        max_length: int,
+        max_tokens: int,
+        shuffle: bool = False,
+        seed: int = 0,
+        drop_last: bool = False,
+    ):
+        if max_tokens <= 0:
+            raise ValueError(f"Packed token budget must be positive, got {max_tokens}.")
+        self.dataset = dataset
+        self.tokenizer = tokenizer
+        self.src_key = src_language_key
+        self.tgt_key = tgt_language_key
+        self.max_length = max_length
+        self.max_tokens = max_tokens
+        self.shuffle = shuffle
+        self.seed = seed
+        self.drop_last = drop_last
+        self.epoch = 0
+        self.lengths = self._compute_lengths()
+
+    def _compute_lengths(self) -> list[int]:
+        lengths = []
+        chunk_size = 1024
+        for start in range(0, len(self.dataset), chunk_size):
+            features = [self.dataset[idx] for idx in range(start, min(start + chunk_size, len(self.dataset)))]
+            tgt_sentences = [
+                format_feature_text(feature, self.tgt_key, "tgt", self.tokenizer)
+                for feature in features
+            ]
+            src_sentences = [
+                format_feature_text(feature, self.src_key, "src", self.tokenizer)
+                for feature in features
+            ]
+            sequences = self.tokenizer(
+                tgt_sentences + src_sentences,
+                padding=False,
+                truncation=True,
+                max_length=self.max_length,
+                return_attention_mask=False,
+            )["input_ids"]
+            batch_size = len(features)
+            lengths.extend(
+                max(1, len(sequences[idx])) + max(1, len(sequences[idx + batch_size]))
+                for idx in range(batch_size)
+            )
+        return lengths
+
+    def _indices(self) -> list[int]:
+        if not self.shuffle:
+            return list(range(len(self.lengths)))
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+        return torch.randperm(len(self.lengths), generator=generator).tolist()
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def _batches(self) -> list[list[int]]:
+        batches = []
+        batch = []
+        token_count = 0
+        for idx in self._indices():
+            sample_tokens = self.lengths[idx]
+            if batch and token_count + sample_tokens > self.max_tokens:
+                batches.append(batch)
+                batch = []
+                token_count = 0
+            batch.append(idx)
+            token_count += sample_tokens
+        if batch and not self.drop_last:
+            batches.append(batch)
+        return batches
+
+    def __iter__(self):
+        yield from self._batches()
+
+    def __len__(self):
+        return len(self._batches())
 
 
 class TargetLanguageCausalLMCollator:

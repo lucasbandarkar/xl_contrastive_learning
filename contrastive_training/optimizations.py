@@ -137,6 +137,8 @@ def finalize_loaded_model(
     use_model_cache: bool = False,
     fsdp: bool = False,
 ) -> torch.nn.Module:
+    from packed_forward import apply_packed_forward_patch
+
     model.config.use_cache = use_model_cache
     applied_attn = getattr(model.config, "_attn_implementation", None)
     if optimization_config.attn_implementation and applied_attn != optimization_config.attn_implementation:
@@ -151,6 +153,7 @@ def finalize_loaded_model(
         model._no_split_modules = [actual_layer_cls]
 
     model = model.to(torch.bfloat16)
+    model = apply_packed_forward_patch(model)
     model = apply_torch_compile(model, optimization_config)
     model.train()
     return model
