@@ -39,6 +39,14 @@ EVAL_RUNNER=uv APPLY_VLLM_PHIMOE_PATCH=1 ./run_eval_only.sh -m microsoft/Phi-tin
 EVAL_RUNNER=python APPLY_VLLM_PHIMOE_PATCH=0 ./run_eval_only.sh -m microsoft/Phi-tiny-MoE-instruct -l si -g 0
 ```
 
+## Intermediate checkpoints
+
+When `run_eval_only.sh` evaluates a path ending in `checkpoint-N`, it writes into the
+parent run's eval directory and suffixes the summary with the approximate number of
+training samples seen. For example, evaluating `.../<run>_200k/checkpoint-5000` in a
+run whose last checkpoint is `checkpoint-6250` writes `summary_160k.json` under
+`results/eval-<run>_200k-<lang>/`.
+
 ## Create environment
 
 This env works for Phi-tiny & ling, but not for Qwen3.5.
@@ -59,4 +67,3 @@ For Qwen3.5, i reused the environment at the bottom of `routing_analysis/README.
 ## Evaluating a new language
 
 See `language_to_task.py` for instructions on how to add another language.
-

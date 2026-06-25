@@ -17,6 +17,7 @@ from peft import PeftModel
 from language_to_task import LANGUAGE_TO_TASK
 from task_evaluators import TASK_EVALUATOR_REGISTRY
 from export_fsdp_checkpoint import maybe_export_fsdp_checkpoint
+from eval_output_paths import resolve_eval_output_naming, task_output_suffix
 
 
 def prepare_model(model_name_or_path: str, adapter_path: str | None = None):
@@ -211,9 +212,38 @@ def evaluate_model(
     selected_tasks: list[str],
     run_name: str,
     cleanup_model_path: str | None,
+    summary_file_name: str = "summary.json",
     tensor_parallel_size: int = 1,
     debug_single_task: bool = False,
 ):
+    training_metadata, training_metadata_path = load_training_metadata(model_path, original_model_path)
+    output_naming = resolve_eval_output_naming(
+        original_model_path,
+        run_name,
+        model_path=model_path,
+        training_metadata=training_metadata,
+        requested_summary_filename=summary_file_name,
+    )
+    if output_naming.is_checkpoint_eval:
+        if output_naming.run_name != run_name:
+            print(f"Checkpoint eval results will be grouped under `{output_naming.run_name}`.")
+        if output_naming.estimated_samples_k is not None:
+            print(
+                f"Checkpoint-{output_naming.checkpoint_step} is approximately "
+                f"{output_naming.estimated_samples_k}k samples "
+                f"based on latest checkpoint-{output_naming.latest_checkpoint_step}; "
+                f"writing `{output_naming.summary_filename}`."
+            )
+        else:
+            print(
+                f"Could not infer sample count for checkpoint-{output_naming.checkpoint_step}; "
+                f"writing `{output_naming.summary_filename}`."
+            )
+
+    run_name = output_naming.run_name
+    summary_file_name = output_naming.summary_filename
+    task_suffix = task_output_suffix(summary_file_name)
+
     max_model_len = 4096
     if "te" in selected_languages:
         max_model_len = 7000
@@ -234,7 +264,7 @@ def evaluate_model(
 
     summary = {}
     for task_id in selected_tasks:
-        output_file = output_dir / f"{task_id}.json"
+        output_file = output_dir / f"{task_id}{task_suffix}.json"
         if output_file.exists() and not debug_single_task:
             print(f"Skipping `{task_id}`, results already exist in {output_file.name}")
             with output_file.open("r") as f:
@@ -254,29 +284,28 @@ def evaluate_model(
             print(f"Temporary results written to {output_file.name}")
 
     if debug_single_task:
-        print(f"Wrote debug samples to {output_dir} without creating summary.json.")
+        print(f"Wrote debug samples to {output_dir} without creating {summary_file_name}.")
         if cleanup_model_path:
             print(f"Cleaning up model directory: {cleanup_model_path}")
             shutil.rmtree(cleanup_model_path, ignore_errors=True)
         return
 
-    training_metadata, training_metadata_path = load_training_metadata(model_path, original_model_path)
     if training_metadata is not None:
         summary["training_metadata"] = training_metadata
         print(f"Loaded training metadata from {training_metadata_path}")
     else:
         print("No training metadata found for evaluated model.")
 
-    summary_path = output_dir / "summary.json"
+    summary_path = output_dir / summary_file_name
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=4, ensure_ascii=False)
 
     for task_id in selected_tasks:
-        output_file = output_dir / f"{task_id}.json"
+        output_file = output_dir / f"{task_id}{task_suffix}.json"
         if output_file.exists():
             output_file.unlink()
 
-    print(f"Wrote summary to {output_dir} and cleaned up per-task files.")
+    print(f"Wrote summary to {summary_path} and cleaned up per-task files.")
 
     if cleanup_model_path:
         print(f"Cleaning up model directory: {cleanup_model_path}")
