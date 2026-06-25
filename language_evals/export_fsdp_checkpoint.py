@@ -22,6 +22,7 @@ FSDP_BASE_MODEL_HINTS = {
     "qwen": "Qwen/Qwen3-30B-A3B",
     "qwen3": "Qwen/Qwen3-30B-A3B",
     "ling": "inclusionAI/Ling-mini-2.0",
+    "marco": "AIDC-AI/Marco-Nano-Instruct",
 }
 
 
