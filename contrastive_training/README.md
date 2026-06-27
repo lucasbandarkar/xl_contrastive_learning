@@ -18,11 +18,15 @@ CUDA_VISIBLE_DEVICES="0" uv run accelerate launch --config_file accelerate_confi
 `--packed` packs target/source examples into one flattened row, passes reset `position_ids`,
 `seq_idx`, and FlashAttention `cu_seq_lens_*`, and computes the same target LM loss and mean-token
 router KL loss without padding tokens. Granite and Qwen3 MoE use split-forward packed paths that
-drop source tokens after the selected router-loss layer; other MoE models use the generic
-router-logit path when their Transformers forward accepts `cu_seq_lens_*`. The current packed
-collator still batches by example count (`-b`); `max_length` only truncates each sequence before
-packing. If packed training becomes the default path, the next batching change should be
-token-budget packing: pack examples until total sequence length reaches `N`.
+drop source tokens after the selected router-loss layer. The split-forward path is installed on the
+model's top-level `forward` before FSDP wrapping, so packed training still enters `model(...)`
+instead of calling decoder layers from the trainer. Other MoE models use the generic router-logit
+path when their Transformers forward accepts `cu_seq_lens_*`.
+
+Packed training batches by total target+source token budget. `--packed-sequence-length N` packs
+examples until the flattened packed row reaches `N` tokens; if omitted, the budget is derived from
+the configured batch size as `batch_size * max_length * 2`. `max_length` still truncates each
+individual target/source sequence before packing.
 
 Measured speedups on one L40S:
 
@@ -76,10 +80,10 @@ Code:
 - I create an implementation for the contrastive loss; the central piece of all of this. The goal of everything else is to set up the data, weights, etc to be able to use this contrastive loss to increase routing alignment.
 - a key element of the contrastive loss is how to aggregate across tokens in a sequence. I just listed out a number of `token_aggregation` methods.
 - `key_layer` is the layer at which we do contrastive learning. That is, the layer where we use the routing weights to calculate the loss before backpropagating.
-- ContrastiveTrainer is to train with *just* the contrastive loss. I'm not sure if this will work on its own, or if it'll break the model to fine-tune with a single, very specific objective. As a result, I also develop ContrastiveLMTrainer where the contrastive loss is accompanied with the typical LM loss (when doing LM-loss training on a post-trained model, we call this Continual Pretraining (CPT)). `alpha_contrastive` is how much to weigh one vs the other. 
-- `modeling.py` class creates cutsom ...ForCausalLM classes (using Mixin) that ensures the router logits are returned in order to use them for the loss. The `NICKNAME_TO_MODEL_MAP` and `training_configs.json` is my very personal style of code that allows me to pass in shorthand names into the CLI and store the optimized batch size & other hyperparams that I've found for those models. `training_configs.json` has dummy values for now. 
+- ContrastiveTrainer is to train with *just* the contrastive loss. I'm not sure if this will work on its own, or if it'll break the model to fine-tune with a single, very specific objective. As a result, I also develop ContrastiveLMTrainer where the contrastive loss is accompanied with the typical LM loss (when doing LM-loss training on a post-trained model, we call this Continual Pretraining (CPT)). `alpha_contrastive` is how much to weigh one vs the other.
+- `modeling.py` class creates cutsom ...ForCausalLM classes (using Mixin) that ensures the router logits are returned in order to use them for the loss. The `NICKNAME_TO_MODEL_MAP` and `training_configs.json` is my very personal style of code that allows me to pass in shorthand names into the CLI and store the optimized batch size & other hyperparams that I've found for those models. `training_configs.json` has dummy values for now.
 - The "Partial..." classes is because if we are training with just the contrastive loss, we technically don't need to do inference beyond the `key_layer` (since it's not important for the training). To save huge amounts of time, these classes attempt to completely halt the forward pass after the key layer. I think I tried to replicate some implementations of early-exit decoding I found. For now, this is incomplete and we'll come back to this.
-- a notable customization that's required is that instead of applying a loss to one sample, contrastive loss requires forward pass on TWO samples (in 2 different languages). The implementation of a custom DataCollator is in `parallel_dataset.py`. 
+- a notable customization that's required is that instead of applying a loss to one sample, contrastive loss requires forward pass on TWO samples (in 2 different languages). The implementation of a custom DataCollator is in `parallel_dataset.py`.
 
 Future Complications:
 - the only way we're going to be able to do this training on large models is by using FSDP or other types of model parallelism (because MoE models are large). We're going to have to make sure that none of our custom behavior breaks LlamaFactory's ability to optimize the computation graph. For now, I think we can ignore this and just have a basic implementation for Phi-Moe-tiny instruct, which should be trainable on smaller GPUs.
