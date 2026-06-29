@@ -144,11 +144,12 @@ MIXED_SOURCE_SPECS = {
         {"name": "nusax_mt", "weight": 0.06, "kind": "generic", "path": "indonlp/NusaX-MT", "split": "train",},
     ],
     "bn": [
-        {"name": "updesh", "weight": 0.45, "kind": "updesh_sft"},
-        {"name": "bactrianx_sft", "weight": 0.20, "kind": "bactrianx_sft"},
-        {"name": "samanantar", "weight": 0.20, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
-        {"name": "nllb", "weight": 0.10, "kind": "nllb", **NLLB_SOURCE_FIELDS},
+        {"name": "updesh", "weight": 0.40, "kind": "updesh_sft"},
+        {"name": "bactrianx_sft", "weight": 0.15, "kind": "bactrianx_sft"},
+        {"name": "samanantar", "weight": 0.15, "kind": "generic", "path": "ai4bharat/samanantar", "config": "bn", "source_field": "src", "target_field": "tgt"},
+        {"name": "nllb", "weight": 0.05, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.05, "kind": "opus100"},
+        {"name": "mcot_math", "weight": 0.20, "kind": "mcot_math_sft"},
     ],
     "hu": [
         {"name": "opus100", "weight": 0.50, "kind": "opus100"},
@@ -204,6 +205,7 @@ ENGLISH_FIELD_NAMES = ("en", "eng", "eng_Latn", "english")
 NLLB_ENGLISH_BITEXT_DATASET = "hotchpotch/nllb-english-bitext-hq"
 BACTRIAN_X_DATASET = "MBZUAI/Bactrian-X"
 BACTRIAN_X_DATA_PATH_TEMPLATE = "hf://datasets/MBZUAI/Bactrian-X/data/{language}.json.gz"
+MCOT_MATH_DATASET = "laihuiyuan/mCoT-MATH"
 UPDESH_DATA_DIR = Path("/data2/lucasbandarkar/sft_datasets/orca-agentinstruct")
 UPDESH_FILE_PATTERN_TEMPLATE = "orca-agentinstruct-1M-v1.*.{language}.jsonl"
 
@@ -389,6 +391,19 @@ def _build_bactrianx_messages(example: Dict[str, Any]) -> Optional[List[Dict[str
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": user_content},
         {"role": "assistant", "content": output},
+    ]
+
+
+def _build_mcot_math_messages(example: Dict[str, Any]) -> Optional[List[Dict[str, str]]]:
+    question = _clean_sft_text(example.get("question"))
+    answer = _clean_sft_text(example.get("answer"))
+    if not question or not answer:
+        return None
+
+    return [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
     ]
 
 
@@ -661,6 +676,91 @@ def _format_bactrianx_sft_example(
     )
 
 
+def _split_mcot_math_lang_id(example: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    lang_id = example.get("lang-id")
+    if not isinstance(lang_id, str):
+        return None, None
+
+    language, separator, example_id = lang_id.partition("-")
+    if not separator or not language or not example_id:
+        return None, None
+    return language, example_id
+
+
+def _format_mcot_math_sft_example(
+    src_example: Dict[str, Any],
+    tgt_example: Dict[str, Any],
+    language_config: Dict[str, Any],
+    spec: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    source_language, source_id = _split_mcot_math_lang_id(src_example)
+    target_language, target_id = _split_mcot_math_lang_id(tgt_example)
+    if source_id is None or source_id != target_id:
+        return None
+    if source_language != spec.get("source_lang", "en"):
+        return None
+    if target_language != spec.get("target_lang", language_config["opus"]):
+        return None
+
+    messages_src = _build_mcot_math_messages(src_example)
+    messages_tgt = _build_mcot_math_messages(tgt_example)
+    if not messages_src or not messages_tgt:
+        return None
+
+    src_text = _messages_to_plain_text(messages_src)
+    tgt_text = _messages_to_plain_text(messages_tgt)
+    if src_text == tgt_text:
+        return None
+
+    return _make_dataset_example(
+        src_text=src_text,
+        tgt_text=tgt_text,
+        language_config=language_config,
+        source_name=spec["name"],
+        example_type="sft_parallel",
+        messages_src=messages_src,
+        messages_tgt=messages_tgt,
+    )
+
+
+def _iter_mcot_math_sft_examples(
+    spec: Dict[str, Any],
+    language_config: Dict[str, Any],
+):
+    source_language = spec.get("source_lang", "en")
+    target_language = spec.get("target_lang", language_config["opus"])
+    pending_source: Dict[str, Dict[str, Any]] = {}
+    pending_target: Dict[str, Dict[str, Any]] = {}
+
+    stream = _load_dataset_stream(
+        spec.get("path", MCOT_MATH_DATASET),
+        spec.get("config"),
+        split=spec.get("split", "train"),
+        trust_remote_code=spec.get("trust_remote_code", False),
+    )
+    for raw_example in stream:
+        language, example_id = _split_mcot_math_lang_id(raw_example)
+        if language is None or example_id is None:
+            continue
+
+        if language == source_language:
+            tgt_example = pending_target.pop(example_id, None)
+            if tgt_example is not None:
+                example = _format_mcot_math_sft_example(raw_example, tgt_example, language_config, spec)
+                if example is not None:
+                    yield example
+            else:
+                pending_source[example_id] = raw_example
+        elif language == target_language:
+            src_example = pending_source.pop(example_id, None)
+            if src_example is not None:
+                example = _format_mcot_math_sft_example(src_example, raw_example, language_config, spec)
+                if example is not None:
+                    yield example
+            else:
+                pending_target[example_id] = raw_example
+
+
 def _get_bactrianx_english_by_id() -> Dict[str, Dict[str, Any]]:
     global _BACTRIAN_X_ENGLISH_BY_ID
     if _BACTRIAN_X_ENGLISH_BY_ID is None:
@@ -730,9 +830,14 @@ def _collect_examples_from_source(
         return _collect_bactrianx_sft_examples(language_config, requested_count, seen_pairs)
 
     collected = []
-    stream = _source_dataset_stream(spec, language_config)
+    if spec["kind"] == "mcot_math_sft":
+        stream = _iter_mcot_math_sft_examples(spec, language_config)
+    else:
+        stream = _source_dataset_stream(spec, language_config)
     for raw_example in stream:
-        if spec["kind"] == "updesh_sft":
+        if spec["kind"] == "mcot_math_sft":
+            example = raw_example
+        elif spec["kind"] == "updesh_sft":
             example = _format_updesh_sft_example(raw_example, language_config, spec)
         else:
             example = _format_parallel_example(raw_example, language_config, spec)
