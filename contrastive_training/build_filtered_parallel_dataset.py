@@ -18,6 +18,7 @@ from dataset_helpers import (
     _format_parallel_example,
     _format_updesh_sft_example,
     _get_bactrianx_english_by_id,
+    _iter_mcot_math_sft_examples,
     _source_dataset_stream,
     canonical_mixed_language,
     filtered_parallel_dataset_path,
@@ -41,6 +42,10 @@ def iter_source_examples(spec: Dict[str, Any], language_config: Dict[str, Any]) 
             example = _format_bactrianx_sft_example(src_raw, tgt_raw, language_config)
             if example is not None:
                 yield example
+        return
+
+    if spec["kind"] == "mcot_math_sft":
+        yield from _iter_mcot_math_sft_examples(spec, language_config)
         return
 
     stream = _source_dataset_stream(spec, language_config)
