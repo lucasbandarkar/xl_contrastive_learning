@@ -21,8 +21,9 @@ router KL loss without padding tokens. Granite and Qwen3 MoE use split-forward p
 drop source tokens after the selected router-loss layer; other MoE models use the generic
 router-logit path when their Transformers forward accepts `cu_seq_lens_*`. The current packed
 collator still batches by example count (`-b`); `max_length` only truncates each sequence before
-packing. If packed training becomes the default path, the next batching change should be
-token-budget packing: pack examples until total sequence length reaches `N`.
+packing. Full contrastive training defaults to packing for the `qwen3`, `marco`, and `granite`
+model nicknames. Pass `--no-packed` to use padded training instead. Baseline and early-exit runs
+remain padded by default and reject an explicit `--packed`.
 
 Measured speedups on one L40S:
 

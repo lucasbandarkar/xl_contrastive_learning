@@ -21,6 +21,8 @@ LANGUAGE_TO_TASK = {
     "ne": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "include", "global_piqa"],
     "hu": ["belebele", "mgsm", "mmlu_prox", "flores", "include", "global_piqa"],
     "te": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "include", "global_piqa"],
+    "ml": ["belebele", "flores", "include", "global_piqa"],
+    "el": ["belebele", "mgsm", "flores", "include", "global_piqa"],
     # all 8
     "bn": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
     "fr": ["belebele", "mgsm", "mmlu_prox", "global_mmlu_medical", "flores", "multiloko", "include", "global_piqa"],
@@ -46,6 +48,8 @@ FLORES_LANGCODE_MAP = {
     "ne": "npi_Deva",
     "hu": "hun_Latn",
     "te": "tel_Telu",
+    "ml": "mal_Mlym",
+    "el": "ell_Grek",
 }
 
 FLORES_TARGET_LANGUAGE_NAMES = {
@@ -65,6 +69,8 @@ FLORES_TARGET_LANGUAGE_NAMES = {
     "ne": "Nepali, written in Devanagari script",
     "hu": "hun_Latn",
     "te": "Telugu, written in Telugu script",
+    "ml": "Malayalam, written in Malayalam script",
+    "el": "Greek, written in Greek script",
 }
 
 CODE_TO_INCLUDE_NAME = {
@@ -79,6 +85,8 @@ CODE_TO_INCLUDE_NAME = {
     "ne": "Nepali",
     "hu": "Hungarian",
     "te": "Telugu",
+    "ml": "Malayalam",
+    "el": "Greek",
 }
 
 CODE_TO_MULTILOKO_NAME = {

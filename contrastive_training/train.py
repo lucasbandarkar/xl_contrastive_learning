@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from contrastive_trainer import ContrastiveTrainer, ContrastiveLMTrainer, TargetLMTrainer, TranslationSFTTrainer
 import torch
 from modeling import load_models
@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from collections import Counter
 import huggingface_hub
+
+PACKED_BY_DEFAULT_MODELS = {"qwen3", "marco", "granite"}
 
 TRACKED_TRAINING_ARG_NAMES = (
     "per_device_train_batch_size", "per_device_eval_batch_size", "gradient_accumulation_steps", "auto_find_batch_size",
@@ -478,7 +480,8 @@ if __name__ == "__main__":
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
     parser.add_argument('--no_checkpoint', '--no-checkpoint', action="store_true", help="disable intermediate trainer checkpoints; final model saving still runs")
-    parser.add_argument('--packed', action="store_true", help="pack target/source examples into one FlashAttention varlen sequence for full contrastive LM training")
+    parser.add_argument('--packed', action=BooleanOptionalAction, default=None,
+                        help="pack sequences; defaults on for qwen3, marco, and granite; use --no-packed to override")
     parser.add_argument('--baseline', action="store_true", help="no applying of contrastive training, this is for control")
     parser.add_argument(
         '--baseline_mode',
@@ -487,6 +490,9 @@ if __name__ == "__main__":
         help="which baseline to run when --baseline is passed",
     )
     args = parser.parse_args()
+
+    if args.packed is None:
+        args.packed = args.nickname in PACKED_BY_DEFAULT_MODELS and not (args.baseline or args.earlyexit)
 
     if args.min_layer is None:
         args.min_layer = args.max_layer

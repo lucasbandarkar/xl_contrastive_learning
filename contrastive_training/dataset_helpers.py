@@ -29,36 +29,25 @@ MAX_LENGTH_BY_LANGUAGE = {
     "kan": 640,
     "sin": 512,
     "ben": 512,
+    "tel": 640,
 }
 
 OPUS_LANGUAGE_CODES = {
-    "fa": "fa",
     "pes": "fa",
-    "bn": "bn",
     "ben": "bn",
     "ben_Beng": "bn",
-    "hu": "hu",
     "hun": "hu",
-    "id": "id",
     "ind": "id",
-    "kn": "kn",
     "kan": "kn",
     "kan_Knda": "kn",
-    "ky": "ky",
     "kir": "ky",
-    "ne": "ne",
     "npi": "ne",
     "npi_Deva": "ne",
-    "te": "te",
     "tel": "te",
     "tel_Telu": "te",
-    "vi": "vi",
     "vie": "vi",
-    "si": "si",
     "sin": "si",
-    "yo": "yo",
     "yor": "yo",
-    "zu": "zu",
     "zul": "zu",
 }
 
@@ -212,21 +201,8 @@ UPDESH_FILE_PATTERN_TEMPLATE = "orca-agentinstruct-1M-v1.*.{language}.jsonl"
 _BACTRIAN_X_ENGLISH_BY_ID: Optional[Dict[str, Dict[str, Any]]] = None
 
 
-def opus_language_code(language: str) -> str:
-    language = language.strip()
-    if language in OPUS_LANGUAGE_CODES:
-        return OPUS_LANGUAGE_CODES[language]
-
-    language_lower = language.lower()
-    for alias, opus_code in OPUS_LANGUAGE_CODES.items():
-        if alias.lower() == language_lower:
-            return opus_code
-
-    raise ValueError(f"Unsupported OPUS language '{language}'")
-
-
 def canonical_mixed_language(language: str) -> str:
-    opus_language = opus_language_code(language)
+    opus_language = OPUS_LANGUAGE_CODES.get(language, language)
     if opus_language in MIXED_LANGUAGE_CONFIGS:
         return opus_language
 

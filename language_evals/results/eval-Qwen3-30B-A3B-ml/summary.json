@@ -1,0 +1,20 @@
+{
+    "belebele": {
+        "belebele_mal_Mlym": 0.77
+    },
+    "flores": {
+        "ml": 30.082
+    },
+    "global_piqa": {
+        "global_piqa_completions_tel_telu": 0.61
+    },
+    "include": {
+        "include_base_44_malayalam": 0.555,
+        "include_base_44_malayalam_few_shot_og_arts_humanities": 0.411,
+        "include_base_44_malayalam_few_shot_og_general_knowledge": 0.654,
+        "include_base_44_malayalam_few_shot_og_health_oriented_education": 0.42,
+        "include_base_44_malayalam_few_shot_og_marine_license": 0.644,
+        "include_base_44_malayalam_few_shot_og_social_science": 0.25,
+        "include_base_44_malayalam_few_shot_og_stem": 0.511
+    }
+}

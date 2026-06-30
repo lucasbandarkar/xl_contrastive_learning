@@ -13,7 +13,7 @@ from dataset_helpers import (
     MIXED_PARALLEL_VALIDATION_LIMIT,
     MAX_LENGTH_BY_LANGUAGE,
     filtered_parallel_dataset_path,
-    opus_language_code,
+    OPUS_LANGUAGE_CODES,
     opus_split_name,
 )
 
@@ -337,7 +337,7 @@ def load_parallel_datasets(dataset: str, language: str, data_limit=None, disable
             return cached_dataset
         return load_mixed_parallel_dataset(language, data_limit)
     elif dataset == "opus":
-        tgt_lang = opus_language_code(language)
+        tgt_lang = OPUS_LANGUAGE_CODES.get(language, language)
         split_name = opus_split_name(tgt_lang)
         dataset = load_dataset("Helsinki-NLP/opus-100", split_name, keep_in_memory=disable_cache)
 
