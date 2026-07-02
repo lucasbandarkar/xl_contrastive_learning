@@ -403,7 +403,15 @@ class FLoResEngXEvaluator(Evaluator):
             # Map the flores langcode back to the original langcode
             original_lang = next((k for k, v in FLORES_LANGCODE_MAP.items() if v == tgt_lang), tgt_lang)
             results_clean[original_lang] = np.round(metrics.get("chrf,none", metrics.get("chrf", 0.0)), 3)
-            
+
+        if debugging:
+            self.write_results(output_file, {
+                "scores": results_clean,
+                "results": results.get("results", {}),
+                "samples": results.get("samples", {}),
+            })
+            return results_clean
+
         self.write_results(output_file, results_clean)
         return results_clean
 
