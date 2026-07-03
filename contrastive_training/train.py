@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, BooleanOptionalAction
 from contrastive_trainer import ContrastiveTrainer, ContrastiveLMTrainer, TargetLMTrainer, TranslationSFTTrainer
 import torch
-from modeling import load_models
+from modeling import get_router_scoring_func, load_models
 from parallel_dataset import (
     load_parallel_datasets,
     ParallelDataCollator,
@@ -325,6 +325,7 @@ def main(args):
             min_layer=args.min_layer,
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
+            scoring_func=get_router_scoring_func(model),
         )
     elif args.baseline and args.baseline_mode in ["target_lm", "frozen_lm"]:
         training_args = create_training_args(
@@ -403,6 +404,7 @@ def main(args):
             min_layer=args.min_layer,
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
+            scoring_func=get_router_scoring_func(model),
         )
 
     if args.baseline and args.baseline_mode == "frozen_lm":

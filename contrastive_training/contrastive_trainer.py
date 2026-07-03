@@ -440,6 +440,11 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         elif self.model.config.model_type == "qwen3_moe":
             patch_qwen3_moe_router_logits(self.model)
 
+        # This trainer computes a custom mean-reduced loss and does not use
+        # num_items_in_batch. Without this override, packed batches' `labels`
+        # key makes Trainer report loss multiplied by gradient accumulation.
+        self.model_accepts_loss_kwargs = False
+
     def lm_loss(self, shift_logits, shift_labels):
         valid_labels = shift_labels.ne(-100)
         if not valid_labels.any():

@@ -30,6 +30,13 @@ NICKNAME_TO_MODEL_MAP = {
     "marco": "AIDC-AI/Marco-Nano-Instruct"
 }
 
+# Transformers 5.3 Qwen3 MoE routers return full-expert probabilities, while
+# the other currently supported routers expose pre-softmax logits.
+def get_router_scoring_func(model: torch.nn.Module) -> str:
+    if model.config.model_type == "qwen3_moe":
+        return "identity"
+    return "softmax"
+
 
 def _load_model_from_pretrained(
         model_name,
