@@ -3,7 +3,7 @@
         "belebele_vie_Latn": 0.737
     },
     "flores": {
-        "vi": 44.842
+        "vi": 30.422
     },
     "global_mmlu_medical": {
         "vi": 0.521
@@ -21,7 +21,7 @@
         "vi": 0.504
     },
     "mmlu_prox": {
-        "mmlu_prox_vi": 0.3512623490669594
+        "mmlu_prox_vi": 0.34357848518111966
     },
     "multiloko": {
         "vi": 0.108

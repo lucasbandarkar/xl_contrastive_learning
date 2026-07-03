@@ -1,0 +1,183 @@
+{
+    "belebele": {
+        "belebele_kir_Cyrl": 0.69
+    },
+    "flores": {
+        "ky": 18.864
+    },
+    "global_piqa": {
+        "global_piqa_completions_kir_cyrl": 0.59
+    },
+    "mgsm": {
+        "ky": 0.168
+    },
+    "training_metadata": {
+        "created_at_utc": "2026-06-30T15:29:30.945052+00:00",
+        "run": {
+            "output_dir_name": "qwen3_kir__L7-34_routers_200k",
+            "resume_from_checkpoint": null
+        },
+        "training_args": {
+            "per_device_train_batch_size": 32,
+            "per_device_eval_batch_size": 32,
+            "gradient_accumulation_steps": 1,
+            "auto_find_batch_size": false,
+            "optim": "OptimizerNames.ADAMW_TORCH_FUSED",
+            "num_train_epochs": 1,
+            "max_steps": -1,
+            "learning_rate": 3e-06,
+            "lr_scheduler_type": "SchedulerType.WARMUP_STABLE_DECAY",
+            "warmup_steps": 312,
+            "neftune_noise_alpha": null,
+            "max_grad_norm": 1.0,
+            "adam_beta2": 0.99,
+            "bf16": false,
+            "gradient_checkpointing": true,
+            "use_cache": false,
+            "use_liger_kernel": false
+        },
+        "base_model": "qwen3",
+        "data": {
+            "source": "mixed",
+            "language": "kir",
+            "data_limit": 200000,
+            "source_key": "en",
+            "target_key": "ky",
+            "train_size": 200000,
+            "valid_size": 1000,
+            "train_composition": {
+                "source_counts": {
+                    "nllb": 190861,
+                    "opus100": 9139
+                },
+                "example_type_counts": {
+                    "parallel_text": 200000
+                }
+            },
+            "valid_composition": {
+                "source_counts": {
+                    "nllb": 1000
+                },
+                "example_type_counts": {
+                    "parallel_text": 1000
+                }
+            }
+        },
+        "training_mode": {
+            "baseline": false,
+            "baseline_mode": null,
+            "earlyexit": false,
+            "packed": true,
+            "min_layer": 7,
+            "max_layer": 34,
+            "freezing_mode": 1,
+            "contrastive_alpha": 30.0
+        },
+        "loss_tracking": {
+            "train_loss": "training objective",
+            "eval_loss": "lm_loss_tgt"
+        },
+        "environment": {
+            "num_gpus": 4,
+            "multi_gpu": true,
+            "is_aws": false,
+            "cuda_visible_devices": "4,5,6,7",
+            "torch_version": "2.10.0+cu126"
+        },
+        "performance": {
+            "total_steps": 1563,
+            "train_runtime_seconds": 1799.2142,
+            "seconds_per_step": 1.1511287268074215,
+            "train_samples_per_second": 111.16,
+            "train_steps_per_second": 0.869,
+            "train_loss": 3.5226505746920753,
+            "total_flos": 4.404985983716557e+17
+        },
+        "log_history": [
+            {
+                "loss": 3.5532688238681893,
+                "grad_norm": 6.9375,
+                "learning_rate": 2.9903846153846156e-06,
+                "epoch": 0.19961612284069097,
+                "step": 312
+            },
+            {
+                "eval_loss": 3.0608816146850586,
+                "eval_runtime": 1.4872,
+                "eval_samples_per_second": 672.388,
+                "eval_steps_per_second": 5.379,
+                "epoch": 0.19961612284069097,
+                "step": 312
+            },
+            {
+                "loss": 3.5360318697415867,
+                "grad_norm": 6.59375,
+                "learning_rate": 2.571286229223367e-06,
+                "epoch": 0.39923224568138194,
+                "step": 624
+            },
+            {
+                "eval_loss": 3.0390617847442627,
+                "eval_runtime": 1.462,
+                "eval_samples_per_second": 683.974,
+                "eval_steps_per_second": 5.472,
+                "epoch": 0.39923224568138194,
+                "step": 624
+            },
+            {
+                "loss": 3.507237361027644,
+                "grad_norm": 6.5,
+                "learning_rate": 1.5151035556093133e-06,
+                "epoch": 0.5988483685220729,
+                "step": 936
+            },
+            {
+                "eval_loss": 3.0325849056243896,
+                "eval_runtime": 1.4598,
+                "eval_samples_per_second": 685.016,
+                "eval_steps_per_second": 5.48,
+                "epoch": 0.5988483685220729,
+                "step": 936
+            },
+            {
+                "loss": 3.512795864007412,
+                "grad_norm": 6.3125,
+                "learning_rate": 4.500734239593802e-07,
+                "epoch": 0.7984644913627639,
+                "step": 1248
+            },
+            {
+                "eval_loss": 3.032553195953369,
+                "eval_runtime": 1.4689,
+                "eval_samples_per_second": 680.789,
+                "eval_steps_per_second": 5.446,
+                "epoch": 0.7984644913627639,
+                "step": 1248
+            },
+            {
+                "loss": 3.5028130947015224,
+                "grad_norm": 6.875,
+                "learning_rate": 7.604105809538852e-11,
+                "epoch": 0.9980806142034548,
+                "step": 1560
+            },
+            {
+                "eval_loss": 3.032477617263794,
+                "eval_runtime": 1.462,
+                "eval_samples_per_second": 684.003,
+                "eval_steps_per_second": 5.472,
+                "epoch": 0.9980806142034548,
+                "step": 1560
+            },
+            {
+                "train_runtime": 1799.2142,
+                "train_samples_per_second": 111.16,
+                "train_steps_per_second": 0.869,
+                "total_flos": 4.404985983716557e+17,
+                "train_loss": 3.5226505746920753,
+                "epoch": 1.0,
+                "step": 1563
+            }
+        ]
+    }
+}
