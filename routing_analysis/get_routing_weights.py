@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import datasets
 from tqdm import tqdm
 import numpy as np
-import json, gc, os, re
+import json, gc, os, re, shutil
 from itertools import combinations
 from pathlib import Path
 import sys
@@ -22,6 +22,7 @@ if you're getting an error related to a gated repo on HF that you don't have acc
 HF_TOKEN = ""
 ## 15 for now, add more later
 FLORES_LANGUAGES = ["eng_Latn", "bam_Latn", "fra_Latn", "tha_Thai", "pes_Arab", "arb_Arab", "arb_Latn", "ary_Arab", "hin_Deva", "zho_Hans", "srp_Cyrl", "lit_Latn", "ory_Orya", "ben_Beng", "asm_Beng"]
+EXPERIMENTAL_LANGUAGES = ["eng_Latn", "pes_Arab", "ben_Beng", "tel_Telu", "kir_Cyrl", "sin_Sinh", "kan_Knda", "hun_Latn", "vie_Latn"]
 NICKNAME_TO_MODEL_MAP = {
     "qwen3_30b": "Qwen/Qwen3-30B-A3B",
     "olmoe": "allenai/OLMoE-1B-7B-0125-Instruct",
@@ -41,6 +42,14 @@ NICKNAME_TO_MODEL_MAP = {
     "marco": "AIDC-AI/Marco-Mini-Global-Base",
     "marco_nano": "AIDC-AI/Marco-Nano-Instruct"
 }
+
+"""
+MAJOR WARNING:
+In moe env, transformers 4.52.4
+Here, output_router_logits for Qwen3 returns pre-softmax logits, as indicated below
+However, in transformers 5.3.0 Qwen3&3.5 returns post-softmax logits
+If using such a version, you need to set scoring_func to "none" in MODEL_CONFIGS for Qwen3&3.5
+"""
 MODEL_CONFIGS = {
     "qwen3_30b": [48, 128, 8, {}], # [num_layers, num_experts, num_experts_active_per_tok, special_gating_function_params]
     "olmoe": [16, 64, 8],
@@ -49,7 +58,7 @@ MODEL_CONFIGS = {
     "phimoe": [32, 16, 2],
     "moonlight": [27, 64, 6],
     "gpt": [24, 32, 4],
-    "qwen35": [40, 256, 8, {"scoring_fun": "none"}], # router logits are already post-softmax
+    "qwen35": [40, 256, 8, {"scoring_func": "none"}], # router logits are already post-softmax
     "nemotron": [52, 128, 6],
     "kimi": [26, 256, 8, {"scoring_func": "sigmoid"}], # might break as it has 1 dense layer + 26 moe
     "llada": [20, 256, 8, {"scoring_func": "sigmoid"}], # might break as it has 1 dense layer + 20 moe
@@ -243,7 +252,7 @@ class MedInstructRunner(RunnerByDataset):
         return outputs
 
 def calculate_expert_importance_per_sequence(router_logits_by_lang, modelname):
-    ''' expert importance is average of routing weights across tokens in a sequence '''
+    ''' (DEPRECATED) expert importance is average of routing weights across tokens in a sequence '''
     expert_importance = {}
     for lang,lang_router_weights in router_logits_by_lang.items():
         expert_importance[lang] = []
@@ -371,9 +380,9 @@ def get_arguments(args):
     langcodes = ['eng']
     if args.dataset == 'flores':
         if args.languages:
-            langcodes = FLORES_LANGUAGES[:args.languages]
+            langcodes = EXPERIMENTAL_LANGUAGES[:args.languages]
         else:
-            langcodes = FLORES_LANGUAGES
+            langcodes = EXPERIMENTAL_LANGUAGES
     elif args.dataset == 'mgsminstruct':
         if args.languages:
             langcodes = list(MGSMINSTRUCT_LANGUAGES.values())[:args.languages]
@@ -388,19 +397,20 @@ def get_arguments(args):
         3: "total_actual_weight",
     }
     mode = mode_map[args.mode]
-    model_name = get_model_name(args)
-    return langcodes, mode, model_name
+    return langcodes, mode
 
 def get_model_name(args):
     base_model = NICKNAME_TO_MODEL_MAP[args.nickname]
     if not args.trained_ckpt:
-        return base_model
+        return base_model, None
 
-    from export_fsdp_checkpoint import maybe_export_fsdp_checkpoint
+    from export_fsdp_checkpoint import resolve_fsdp_checkpoint
 
-    checkpoint_path = maybe_export_fsdp_checkpoint(args.trained_ckpt, base_model=base_model)
+    fsdp_result = resolve_fsdp_checkpoint(args.trained_ckpt, base_model=base_model)
+    checkpoint_path = fsdp_result.model_path
+    cleanup_path = checkpoint_path if fsdp_result.created_export else None
     print(f"Loading trained checkpoint from {checkpoint_path}")
-    return checkpoint_path
+    return checkpoint_path, cleanup_path
 
 def get_output_suffix(args):
     if not args.trained_ckpt:
@@ -414,7 +424,8 @@ def get_output_suffix(args):
     return f"{args.nickname}_{suffix}"
 
 def main(args):
-    language_codes, mode, model_name = get_arguments(args)
+    language_codes, mode = get_arguments(args)
+    model_name, cleanup_path = get_model_name(args)
     output_suffix = get_output_suffix(args)
 
     # check if requested data has already been collected for certain languages
@@ -431,29 +442,35 @@ def main(args):
         return
     
     print(f"Languages to evaluate: {language_codes_to_evaluate}")
-    model = models.MoeModel(model_name=model_name)
-    if args.dataset == 'flores':
-        runner = FloresRunner(language_codes_to_evaluate)
-    elif args.dataset == 'medinstruct':
-        runner = MedInstructRunner(['eng'])
-    else:
-        runner = MGSMInstructRunner(language_codes_to_evaluate)
+    try:
+        model = models.MoeModel(model_name=model_name)
+        if args.dataset == 'flores':
+            runner = FloresRunner(language_codes_to_evaluate)
+        elif args.dataset == 'medinstruct':
+            runner = MedInstructRunner(['eng'])
+        else:
+            runner = MGSMInstructRunner(language_codes_to_evaluate)
 
-    raw_outputs = runner.get_model_outputs(model, 500)
-    router_weights = {}
-    for lang,lang_outputs in raw_outputs.items():
-        router_weights[lang] = [lang_outputs[i]['router_logits'] for i in range(len(lang_outputs))]
+        raw_outputs = runner.get_model_outputs(model, 500)
+        router_weights = {}
+        for lang,lang_outputs in raw_outputs.items():
+            router_weights[lang] = [lang_outputs[i]['router_logits'] for i in range(len(lang_outputs))]
 
-    if mode == "expert_importance":
-        data = calculate_expert_importance_per_sequence(router_weights, args.nickname)
-    elif mode == "last_token_routing":
-        data = get_last_token_routing(router_weights)
-    elif mode == "activation_counts":
-        data = calculate_activation_counts(router_weights, args.nickname)
-    elif mode == "total_actual_weight":
-        data = calculate_total_actual_weight_per_sequence(router_weights, args.nickname)
+        if mode == "expert_importance":
+            ### initial expert_importance deprecated, but still kept for investigating old data
+            data = calculate_total_actual_weight_per_sequence(router_weights, args.nickname)
+        elif mode == "last_token_routing":
+            data = get_last_token_routing(router_weights)
+        elif mode == "activation_counts":
+            data = calculate_activation_counts(router_weights, args.nickname)
+        elif mode == "total_actual_weight":
+            data = calculate_total_actual_weight_per_sequence(router_weights, args.nickname)
 
-    dump_data_to_json(data, preexisting_results, len(language_codes), args.dataset, output_suffix, mode)
+        dump_data_to_json(data, preexisting_results, len(language_codes), args.dataset, output_suffix, mode)
+    finally:
+        if cleanup_path:
+            print(f"Cleaning up model directory: {cleanup_path}")
+            shutil.rmtree(cleanup_path, ignore_errors=True)
 
 
 ## Example call: python get_routing_weights.py -m mixtral -g 0,1 -t 0 -d mgsminstruct

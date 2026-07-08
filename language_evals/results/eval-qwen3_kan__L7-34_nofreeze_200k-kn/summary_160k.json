@@ -1,15 +1,15 @@
 {
     "belebele": {
-        "belebele_kan_Knda": 0.789
+        "belebele_kan_Knda": 0.786
     },
     "flores": {
-        "kn": 29.394
+        "kn": 29.245
     },
     "global_piqa": {
-        "global_piqa_completions_kan_knda": 0.62
+        "global_piqa_completions_kan_knda": 0.64
     },
     "mgsm": {
-        "kn": 0.344
+        "kn": 0.3
     },
     "training_metadata": {
         "created_at_utc": "2026-07-07T17:32:18.973304+00:00",

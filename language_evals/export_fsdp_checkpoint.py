@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
 import sys
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from accelerate.utils import merge_fsdp_weights
@@ -72,6 +75,18 @@ def find_existing_checkpoint_exports(model_dir: Path) -> list[Path]:
         path for path in model_dir.glob("checkpoint-*_vllm")
         if (path / "config.json").exists()
     )
+
+
+@dataclass(frozen=True)
+class FsdpExportResult:
+    model_path: str
+    created_export: bool = False
+
+
+def fsdp_export_output_dir(model_dir: Path) -> Path:
+    fingerprint = hashlib.sha1(str(model_dir.resolve()).encode("utf-8")).hexdigest()[:10]
+    export_root = Path(tempfile.gettempdir()) / "language-evals-fsdp-exports"
+    return export_root / f"{model_dir.name}-{fingerprint}_vllm"
 
 
 def normalize_exported_config_for_vllm(output_dir: Path):
@@ -145,22 +160,25 @@ def normalize_tokenizer_config_for_transformers(output_dir: Path):
         f.write("\n")
 
 
-def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None) -> str:
+def resolve_fsdp_checkpoint(
+    model_path: str,
+    base_model: str | None = None,
+) -> FsdpExportResult:
     model_dir = Path(model_path)
     if not model_dir.is_dir():
-        return model_path
+        return FsdpExportResult(model_path)
     if (model_dir / "config.json").exists():
         normalize_exported_config_for_vllm(model_dir)
-        return model_path
+        return FsdpExportResult(model_path)
 
-    output_dir = model_dir.with_name(f"{model_dir.name}_vllm")
+    output_dir = fsdp_export_output_dir(model_dir)
     try:
         fsdp_weights_dir = find_fsdp_weights_dir(model_dir)
     except FileNotFoundError:
         if (output_dir / "config.json").exists():
             normalize_exported_config_for_vllm(output_dir)
             print(f"Using existing exported FSDP checkpoint at {output_dir}")
-            return str(output_dir)
+            return FsdpExportResult(str(output_dir))
 
         if (model_dir / "training_metadata.json").exists() or list(model_dir.glob("checkpoint-*")):
             checkpoint_exports = find_existing_checkpoint_exports(model_dir)
@@ -173,12 +191,12 @@ def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None)
                 f"no FSDP weights, and no run-level export at {output_dir}."
                 f"{hint}"
             )
-        return model_path
+        return FsdpExportResult(model_path)
 
     if (output_dir / "config.json").exists():
         normalize_exported_config_for_vllm(output_dir)
         print(f"Using existing exported FSDP checkpoint at {output_dir}")
-        return str(output_dir)
+        return FsdpExportResult(str(output_dir))
 
     if base_model is None:
         base_model = infer_fsdp_base_model(model_dir)
@@ -190,18 +208,32 @@ def maybe_export_fsdp_checkpoint(model_path: str, base_model: str | None = None)
         )
 
     export_script = Path(__file__).resolve()
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+
     # Keep the heavy FSDP merge in a separate process so vLLM starts
     # from a clean Python process after the large tensor rewrite.
-    subprocess.run(
-        [
-            sys.executable, str(export_script),
-            "--checkpoint-dir", str(model_dir),
-            "--base-model", base_model,
-            "--output-dir", str(output_dir),
-        ],
-        check=True,
-    )
-    return str(output_dir)
+    try:
+        subprocess.run(
+            [
+                sys.executable, str(export_script),
+                "--checkpoint-dir", str(model_dir),
+                "--base-model", base_model,
+                "--output-dir", str(output_dir),
+            ],
+            check=True,
+        )
+    except Exception:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        raise
+    return FsdpExportResult(str(output_dir), created_export=True)
+
+
+def maybe_export_fsdp_checkpoint(
+    model_path: str,
+    base_model: str | None = None,
+) -> str:
+    return resolve_fsdp_checkpoint(model_path, base_model).model_path
 
 
 def copy_if_exists(src_dir: Path, output_dir: Path, filename: str):
@@ -578,7 +610,7 @@ def main():
 
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = args.checkpoint_dir.with_name(f"{args.checkpoint_dir.name}_merged")
+        output_dir = fsdp_export_output_dir(args.checkpoint_dir)
 
     export_checkpoint(args.checkpoint_dir, args.base_model, output_dir)
 

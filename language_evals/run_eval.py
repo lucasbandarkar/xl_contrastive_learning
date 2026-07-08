@@ -16,7 +16,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from language_to_task import LANGUAGE_TO_TASK
 from task_evaluators import TASK_EVALUATOR_REGISTRY
-from export_fsdp_checkpoint import maybe_export_fsdp_checkpoint
+from export_fsdp_checkpoint import resolve_fsdp_checkpoint
 from eval_output_paths import resolve_eval_output_naming, task_output_suffix
 
 
@@ -54,14 +54,24 @@ def load_training_metadata(model_path: str, original_model_path: str) -> tuple[d
     candidates = [
         model_dir / "training_metadata.json",
         original_model_dir / "training_metadata.json",
+        model_dir.parent / "training_metadata.json",
+        original_model_dir.parent / "training_metadata.json",
     ]
 
     if model_dir.name.endswith("_vllm"):
         candidates.append(model_dir.with_name(model_dir.name[:-5]) / "training_metadata.json")
+    if original_model_dir.name.endswith("_vllm"):
+        candidates.append(original_model_dir.with_name(original_model_dir.name[:-5]) / "training_metadata.json")
     if model_dir.name.startswith("checkpoint-"):
         candidates.append(model_dir.parent / "training_metadata.json")
+    if original_model_dir.name.startswith("checkpoint-"):
+        candidates.append(original_model_dir.parent / "training_metadata.json")
 
+    seen_paths = set()
     for path in candidates:
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
         if path.exists():
             with path.open("r") as f:
                 return json.load(f), path
@@ -211,7 +221,6 @@ def evaluate_model(
     selected_languages: list[str],
     selected_tasks: list[str],
     run_name: str,
-    cleanup_model_path: str | None,
     summary_file_name: str = "summary.json",
     tensor_parallel_size: int = 1,
     debug_single_task: bool = False,
@@ -285,9 +294,6 @@ def evaluate_model(
 
     if debug_single_task:
         print(f"Wrote debug samples to {output_dir} without creating {summary_file_name}.")
-        if cleanup_model_path:
-            print(f"Cleaning up model directory: {cleanup_model_path}")
-            shutil.rmtree(cleanup_model_path, ignore_errors=True)
         return
 
     if training_metadata is not None:
@@ -306,10 +312,6 @@ def evaluate_model(
             output_file.unlink()
 
     print(f"Wrote summary to {summary_path} and cleaned up per-task files.")
-
-    if cleanup_model_path:
-        print(f"Cleaning up model directory: {cleanup_model_path}")
-        shutil.rmtree(cleanup_model_path, ignore_errors=True)
 
 
 def main():
@@ -343,8 +345,21 @@ def main():
     )
 
     model_path, created_merge = prepare_model(args.model_name, args.adapter_path)
-    model_path = maybe_export_fsdp_checkpoint(model_path, args.base_model)
-    cleanup_path = model_path if created_merge else args.cleanup_model_path
+    prepared_model_path = model_path
+    fsdp_result = resolve_fsdp_checkpoint(
+        model_path,
+        args.base_model,
+    )
+    model_path = fsdp_result.model_path
+
+    cleanup_paths = []
+    if created_merge:
+        cleanup_paths.append(prepared_model_path)
+    elif args.cleanup_model_path:
+        cleanup_paths.append(args.cleanup_model_path)
+    if fsdp_result.created_export:
+        cleanup_paths.append(model_path)
+
     try:
         evaluate_model(
             model_path=model_path,
@@ -352,15 +367,13 @@ def main():
             selected_languages=selected_languages,
             selected_tasks=selected_tasks,
             run_name=args.run_name,
-            cleanup_model_path=cleanup_path,
             tensor_parallel_size=args.tensor_parallel_size,
             debug_single_task=debug_single_task,
         )
-    except Exception:
-        if cleanup_path:
-            print(f"Cleaning up model directory after failure: {cleanup_path}")
+    finally:
+        for cleanup_path in cleanup_paths:
+            print(f"Cleaning up model directory: {cleanup_path}")
             shutil.rmtree(cleanup_path, ignore_errors=True)
-        raise
 
 
 if __name__ == "__main__":

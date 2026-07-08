@@ -1,28 +1,28 @@
 {
     "belebele": {
-        "belebele_ben_Beng": 0.55
+        "belebele_ben_Beng": 0.561
     },
     "flores": {
-        "bn": 29.897
+        "bn": 28.833
     },
     "global_mmlu_medical": {
-        "bn": 0.483
+        "bn": 0.495
     },
     "global_piqa": {
-        "global_piqa_completions_ben_beng": 0.47
+        "global_piqa_completions_ben_beng": 0.63
     },
     "include": {
-        "include_base_44_bengali": 0.443,
+        "include_base_44_bengali": 0.454,
         "include_base_44_bengali_few_shot_og_arts_humanities": 0.343,
-        "include_base_44_bengali_few_shot_og_general_knowledge": 0.446,
-        "include_base_44_bengali_few_shot_og_professional_certification": 0.53,
-        "include_base_44_bengali_few_shot_og_stem": 0.48
+        "include_base_44_bengali_few_shot_og_general_knowledge": 0.44,
+        "include_base_44_bengali_few_shot_og_professional_certification": 0.554,
+        "include_base_44_bengali_few_shot_og_stem": 0.54
     },
     "mgsm": {
-        "bn": 0.184
+        "bn": 0.232
     },
     "mmlu_prox": {
-        "mmlu_prox_bn": 0.12733260153677278
+        "mmlu_prox_bn": 0.16245883644346873
     },
     "multiloko": {
         "bn": 0.084
