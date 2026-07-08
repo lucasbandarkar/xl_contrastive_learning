@@ -64,6 +64,9 @@ def create_training_args(
     kwargs = {}
     if num_gpus > 1 or model_config.get("gradient_checkpointing", False):
         kwargs['gradient_checkpointing'] = True
+    if num_gpus > 1 and grad_accum_steps > 1:
+        # FSDP no_sync retains unsharded gradients and can use more memory than syncing each microbatch.
+        kwargs['accelerator_config'] = {"gradient_accumulation_kwargs": {"sync_each_batch": True}}
     if lr_scheduler == 'warmup_stable_decay':
         kwargs['lr_scheduler_kwargs']={"num_decay_steps": 4 * warmup_steps,} # cooldown over 40k samples
 
