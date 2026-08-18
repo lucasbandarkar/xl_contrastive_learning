@@ -39,7 +39,7 @@ class MoeModel:
     def __init__(self, model_name: str):
         self.model_name = model_name
         use_remote_code = os.path.isdir(model_name)
-        if "granite-4.0-h" in model_name.lower():
+        if "granite" in model_name.lower():
             patch_granite_router_logits_class()
 
         if ("llada" in model_name.lower()) or ("Kimi" in model_name):

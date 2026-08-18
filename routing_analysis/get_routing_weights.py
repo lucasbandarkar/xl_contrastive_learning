@@ -22,7 +22,7 @@ if you're getting an error related to a gated repo on HF that you don't have acc
 HF_TOKEN = ""
 ## 15 for now, add more later
 FLORES_LANGUAGES = ["eng_Latn", "bam_Latn", "fra_Latn", "tha_Thai", "pes_Arab", "arb_Arab", "arb_Latn", "ary_Arab", "hin_Deva", "zho_Hans", "srp_Cyrl", "lit_Latn", "ory_Orya", "ben_Beng", "asm_Beng"]
-EXPERIMENTAL_LANGUAGES = ["eng_Latn", "pes_Arab", "ben_Beng", "tel_Telu", "kir_Cyrl", "sin_Sinh", "kan_Knda", "hun_Latn", "vie_Latn"]
+EXPERIMENTAL_LANGUAGES = ["eng_Latn", "kan_Knda", "kir_Cyrl", "ben_Beng", "tel_Telu", "sin_Sinh", "hun_Latn", "vie_Latn", "pes_Arab", ]
 NICKNAME_TO_MODEL_MAP = {
     "qwen3_30b": "Qwen/Qwen3-30B-A3B",
     "olmoe": "allenai/OLMoE-1B-7B-0125-Instruct",
@@ -52,12 +52,12 @@ If using such a version, you need to set scoring_func to "none" in MODEL_CONFIGS
 """
 MODEL_CONFIGS = {
     "qwen3_30b": [48, 128, 8, {}], # [num_layers, num_experts, num_experts_active_per_tok, special_gating_function_params]
-    "olmoe": [16, 64, 8],
+    "olmoe": [16, 64, 8, {}],
     "mixtral": [32, 8, 2],
     "llama4": [48, 16, 1],
     "phimoe": [32, 16, 2],
     "moonlight": [27, 64, 6],
-    "gpt": [24, 32, 4],
+    "gpt": [24, 32, 4, {}],
     "qwen35": [40, 256, 8, {"scoring_func": "none"}], # router logits are already post-softmax
     "nemotron": [52, 128, 6],
     "kimi": [26, 256, 8, {"scoring_func": "sigmoid"}], # might break as it has 1 dense layer + 26 moe
@@ -379,7 +379,9 @@ def get_arguments(args):
     ''' parses command line arguments '''
     langcodes = ['eng']
     if args.dataset == 'flores':
-        if args.languages:
+        if args.language_codes:
+            langcodes = [code.strip() for code in args.language_codes.split(',') if code.strip()]
+        elif args.languages:
             langcodes = EXPERIMENTAL_LANGUAGES[:args.languages]
         else:
             langcodes = EXPERIMENTAL_LANGUAGES
@@ -478,6 +480,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('-m', '--nickname', type=str, required=True, help="the nickname of the model with which to name files and select model configs")
     parser.add_argument('-l', '--languages', type=int, help="the number of languages to evaluate")
+    parser.add_argument('--language-codes', type=str, default=None, help="comma-separated language codes to evaluate, e.g. eng_Latn,kan_Knda")
     parser.add_argument('-g', '--gpus', type=str, default="6,7", help="the comma-separated list of gpus to evaluate on")
     parser.add_argument('-t', '--mode', type=int, help="code for data to collect 0: expert importance, 1: last token, 2: activation counts, 3: total_actual_weight")
     parser.add_argument('-d', '--dataset', type=str, default='flores', help="flores (max 15 langs) or mgsminstruct (max 10 langs)")

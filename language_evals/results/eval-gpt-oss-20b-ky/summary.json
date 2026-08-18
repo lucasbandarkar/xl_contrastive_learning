@@ -1,14 +1,14 @@
 {
     "belebele": {
-        "belebele_kir_Cyrl": 0.312
+        "belebele_kir_Cyrl": 0.316
     },
     "flores": {
-        "ky": 18.054
+        "ky": 18.068
     },
     "global_piqa": {
-        "global_piqa_completions_kir_cyrl": 0.64
+        "global_piqa_completions_kir_cyrl": 0.62
     },
     "mgsm": {
-        "ky": 0.352
+        "ky": 0.324
     }
 }

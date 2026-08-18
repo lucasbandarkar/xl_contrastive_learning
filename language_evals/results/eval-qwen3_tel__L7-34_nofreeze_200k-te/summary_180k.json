@@ -1,28 +1,28 @@
 {
     "belebele": {
-        "belebele_tel_Telu": 0.693
+        "belebele_tel_Telu": 0.696
     },
     "flores": {
-        "te": 28.514
+        "te": 28.55
     },
     "global_mmlu_medical": {
-        "te": 0.56
+        "te": 0.574
     },
     "global_piqa": {
-        "global_piqa_completions_tel_telu": 0.65
+        "global_piqa_completions_tel_telu": 0.63
     },
     "include": {
-        "include_base_44_telugu": 0.453,
-        "include_base_44_telugu_few_shot_og_applied_science": 0.53,
-        "include_base_44_telugu_few_shot_og_arts_humanities": 0.398,
-        "include_base_44_telugu_few_shot_og_social_science": 0.422,
-        "include_base_44_telugu_few_shot_og_stem": 0.56
+        "include_base_44_telugu": 0.474,
+        "include_base_44_telugu_few_shot_og_applied_science": 0.56,
+        "include_base_44_telugu_few_shot_og_arts_humanities": 0.414,
+        "include_base_44_telugu_few_shot_og_social_science": 0.44,
+        "include_base_44_telugu_few_shot_og_stem": 0.6
     },
     "mgsm": {
-        "te": 0.192
+        "te": 0.184
     },
     "mmlu_prox": {
-        "mmlu_prox_te": 0.19209659714599342
+        "mmlu_prox_te": 0.17672886937431395
     },
     "training_metadata": {
         "created_at_utc": "2026-08-18T11:38:10.191289+00:00",

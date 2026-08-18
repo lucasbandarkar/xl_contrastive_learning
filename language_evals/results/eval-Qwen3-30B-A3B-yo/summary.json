@@ -1,0 +1,20 @@
+{
+    "belebele": {
+        "belebele_yor_Latn": 0.314
+    },
+    "flores": {
+        "yo": 11.726
+    },
+    "global_mmlu_medical": {
+        "yo": 0.414
+    },
+    "global_piqa": {
+        "global_piqa_completions_yor_latn": 0.56
+    },
+    "mgsm": {
+        "yo": 0.02
+    },
+    "mmlu_prox": {
+        "mmlu_prox_yo": 0.0
+    }
+}
