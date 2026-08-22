@@ -1,0 +1,188 @@
+{
+    "belebele": {
+        "belebele_vie_Latn": 0.63
+    },
+    "flores": {
+        "vi": 35.279
+    },
+    "global_mmlu_medical": {
+        "vi": 0.486
+    },
+    "global_piqa": {
+        "global_piqa_completions_vie_latn": 0.6
+    },
+    "include": {
+        "include_base_44_vietnamese": 0.471,
+        "include_base_44_vietnamese_few_shot_og_arts_humanities": 0.484,
+        "include_base_44_vietnamese_few_shot_og_social_science": 0.448,
+        "include_base_44_vietnamese_few_shot_og_stem": 0.52
+    },
+    "mgsm": {
+        "vi": 0.212
+    },
+    "mmlu_prox": {
+        "mmlu_prox_vi": 0.08232711306256861
+    },
+    "multiloko": {
+        "vi": 0.072
+    },
+    "training_metadata": {
+        "created_at_utc": "2026-08-19T19:01:23.387042+00:00",
+        "run": {
+            "output_dir_name": "granite_vie_baseline-target_lm_199k",
+            "resume_from_checkpoint": null
+        },
+        "training_args": {
+            "per_device_train_batch_size": 32,
+            "per_device_eval_batch_size": 32,
+            "gradient_accumulation_steps": 1,
+            "auto_find_batch_size": false,
+            "optim": "OptimizerNames.ADAMW_TORCH_FUSED",
+            "num_train_epochs": 1,
+            "max_steps": -1,
+            "learning_rate": 8e-07,
+            "lr_scheduler_type": "SchedulerType.WARMUP_STABLE_DECAY",
+            "warmup_steps": 312,
+            "neftune_noise_alpha": null,
+            "max_grad_norm": 1.0,
+            "adam_beta2": 0.99,
+            "bf16": false,
+            "gradient_checkpointing": true,
+            "use_cache": false,
+            "use_liger_kernel": false
+        },
+        "base_model": "granite",
+        "data": {
+            "source": "mixed",
+            "language": "vie",
+            "data_limit": 199000,
+            "source_key": "en",
+            "target_key": "vi",
+            "train_size": 199000,
+            "valid_size": 1000,
+            "train_composition": {
+                "source_counts": {
+                    "mtet": 72283,
+                    "bactrianx_sft": 67017,
+                    "nllb": 49750,
+                    "opus100": 9950
+                },
+                "example_type_counts": {
+                    "parallel_text": 131983,
+                    "sft_parallel": 67017
+                }
+            },
+            "valid_composition": {
+                "source_counts": {
+                    "mtet": 700,
+                    "nllb": 250,
+                    "opus100": 50
+                },
+                "example_type_counts": {
+                    "parallel_text": 1000
+                }
+            }
+        },
+        "training_mode": {
+            "baseline": true,
+            "baseline_mode": "target_lm",
+            "earlyexit": false,
+            "packed": false,
+            "min_layer": 14,
+            "max_layer": 14,
+            "freezing_mode": 0,
+            "contrastive_alpha": 1.0
+        },
+        "loss_tracking": {
+            "train_loss": "training objective",
+            "eval_loss": "lm_loss"
+        },
+        "environment": {
+            "num_gpus": 4,
+            "multi_gpu": true,
+            "is_aws": false,
+            "cuda_visible_devices": "2,3,4,5",
+            "torch_version": "2.10.0+cu126"
+        },
+        "performance": {
+            "total_steps": 1555,
+            "train_runtime_seconds": 4110.7064,
+            "seconds_per_step": 2.6435410932475882,
+            "train_samples_per_second": 48.41,
+            "train_steps_per_second": 0.378,
+            "train_loss": 1.7069963951969453,
+            "total_flos": 7.764972260535828e+17
+        },
+        "log_history": [
+            {
+                "loss": 1.9715889172676282,
+                "grad_norm": 12.5625,
+                "learning_rate": 7.974358974358974e-07,
+                "epoch": 0.20064308681672025,
+                "step": 312
+            },
+            {
+                "eval_loss": 2.2216379642486572,
+                "eval_runtime": 2.9041,
+                "eval_samples_per_second": 344.34,
+                "eval_steps_per_second": 2.755,
+                "epoch": 0.20064308681672025,
+                "step": 312
+            },
+            {
+                "loss": 1.694280771108774,
+                "grad_norm": 6.8125,
+                "learning_rate": 6.799804202774985e-07,
+                "epoch": 0.4012861736334405,
+                "step": 624
+            },
+            {
+                "eval_loss": 2.183806896209717,
+                "eval_runtime": 2.8251,
+                "eval_samples_per_second": 353.973,
+                "eval_steps_per_second": 2.832,
+                "epoch": 0.4012861736334405,
+                "step": 624
+            },
+            {
+                "loss": 1.6297000982822516,
+                "grad_norm": 6.75,
+                "learning_rate": 3.959723851708498e-07,
+                "epoch": 0.6019292604501608,
+                "step": 936
+            },
+            {
+                "eval_loss": 2.1758265495300293,
+                "eval_runtime": 2.8289,
+                "eval_samples_per_second": 353.49,
+                "eval_steps_per_second": 2.828,
+                "epoch": 0.6019292604501608,
+                "step": 936
+            },
+            {
+                "loss": 1.616099626590044,
+                "grad_norm": 7.09375,
+                "learning_rate": 1.1432367220710215e-07,
+                "epoch": 0.802572347266881,
+                "step": 1248
+            },
+            {
+                "eval_loss": 2.1747827529907227,
+                "eval_runtime": 2.8286,
+                "eval_samples_per_second": 353.536,
+                "eval_steps_per_second": 2.828,
+                "epoch": 0.802572347266881,
+                "step": 1248
+            },
+            {
+                "train_runtime": 4110.7064,
+                "train_samples_per_second": 48.41,
+                "train_steps_per_second": 0.378,
+                "total_flos": 7.764972260535828e+17,
+                "train_loss": 1.7069963951969453,
+                "epoch": 1.0,
+                "step": 1555
+            }
+        ]
+    }
+}

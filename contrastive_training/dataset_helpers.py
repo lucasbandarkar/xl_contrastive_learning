@@ -21,6 +21,7 @@ LANGUAGE_NAMES = {
     "te": "Telugu",
     "vi": "Vietnamese",
     "si": "Sinhala",
+    "th": "Thai",
     "yo": "Yoruba",
     "zu": "Zulu",
 }
@@ -45,6 +46,8 @@ OPUS_LANGUAGE_CODES = {
     "npi_Deva": "ne",
     "tel": "te",
     "tel_Telu": "te",
+    "tha": "th",
+    "tha_Thai": "th",
     "vie": "vi",
     "sin": "si",
     "yor": "yo",
@@ -101,6 +104,11 @@ MIXED_LANGUAGE_CONFIGS = {
         "opus": "si",
         "nllb": "sin_Sinh",
         "names": ("si", "sin", "sinhala", "sinhalese"),
+    },
+    "th": {
+        "opus": "th",
+        "nllb": "tha_Thai",
+        "names": ("th", "tha", "thai"),
     },
     "yo": {
         "opus": "yo",
@@ -178,6 +186,11 @@ MIXED_SOURCE_SPECS = {
         {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
         {"name": "nllb", "weight": 0.45, "kind": "nllb", **NLLB_SOURCE_FIELDS},
         {"name": "opus100", "weight": 0.15, "kind": "opus100"},
+    ],
+    "th": [
+        {"name": "bactrianx_sft", "weight": 0.40, "kind": "bactrianx_sft"},
+        {"name": "scb_mt_en_th", "weight": 0.35, "kind": "generic", "path": "pythainlp/scb_mt_enth_2020"},
+        {"name": "opus100", "weight": 0.25, "kind": "opus100"},
     ],
     "yo": [
         {"name": "nllb", "weight": 0.50, "kind": "nllb", **NLLB_SOURCE_FIELDS},

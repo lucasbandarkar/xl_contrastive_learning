@@ -1,17 +1,17 @@
 {
     "belebele": {
-        "belebele_zul_Latn": 0.34
+        "belebele_zul_Latn": 0.347
     },
     "flores": {
-        "zu": 22.97
+        "zu": 22.579
     },
     "global_piqa": {
-        "global_piqa_completions_zul_latn": 0.57
+        "global_piqa_completions_zul_latn": 0.58
     },
     "mgsm": {
         "zu": 0.02
     },
     "mmlu_prox": {
-        "mmlu_prox_zu": 0.02305159165751921
+        "mmlu_prox_zu": 0.019758507135016465
     }
 }

@@ -24,18 +24,18 @@ CHECKPOINTS=(
     # "qwen3_kir__L7-34_nofreeze_200k"
     # "qwen3_kir__L7-34_routers_200k/"
     # "qwen3_tel_baseline-target_lm_200k/"
-    # "qwen3_tel__L7-34_nofreeze_199k/"
-    # need routers
+    "qwen3_tel__L7-34_nofreeze_200k/"
+    # "qwen3_tel__L7-34_routers_200k/"
     # "gpt_kan_baseline-target_lm_200k"
-    # "gpt_kan__L4-17_nofreeze_201k/"
+    # "gpt_kan__L4-17_nofreeze_199k"
     # "gpt_kan__L4-17_routers_200k/"
     # "gpt_kir_baseline-target_lm_200k/"
     # gpt_kir__L4-17_nofreeze_200k
-    # need routers
+    # "gpt_kir__L4-17_routers_200k/"
     # "marco_hun_baseline-target_lm_199k/"
     # "marco_hun__L7-19_nofreeze_199k/"
     # "marco_hun__L7-19_nofreeze_200k/"
-    "marco_hun__L7-19_routers_200k/"
+    # "marco_hun__L7-19_routers_200k/" will need new one
     # "marco_sin_baseline-target_lm_200k/"
     # "marco_sin__L7-19_nofreeze_200k/"
     # need routers

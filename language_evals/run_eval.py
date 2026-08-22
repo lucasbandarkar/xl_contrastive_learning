@@ -185,6 +185,7 @@ def build_vllm_wrapper(
         "trust_remote_code": True,
         "enable_thinking": True,
         "max_model_len": max_model_len,
+        # "enforce_eager": os.environ.get("VLLM_ENFORCE_EAGER", "1") != "0", # required on H100 for some reason
         # "gpu_memory_utilization": 0.6,  # Adjust as needed to prevent OOM
     }
 

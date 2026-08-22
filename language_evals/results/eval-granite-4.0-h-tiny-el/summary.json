@@ -1,0 +1,24 @@
+{
+    "belebele": {
+        "belebele_ell_Grek": 0.651
+    },
+    "flores": {
+        "el": 29.669
+    },
+    "global_piqa": {
+        "global_piqa_completions_ell_grek": 0.55
+    },
+    "include": {
+        "include_base_44_greek": 0.44,
+        "include_base_44_greek_few_shot_og_arts_humanities": 0.405,
+        "include_base_44_greek_few_shot_og_business_commerce": 0.571,
+        "include_base_44_greek_few_shot_og_health_oriented_education": 0.16,
+        "include_base_44_greek_few_shot_og_medical_license": 0.448,
+        "include_base_44_greek_few_shot_og_professional_certification": 0.373,
+        "include_base_44_greek_few_shot_og_social_science": 0.5,
+        "include_base_44_greek_few_shot_og_stem": 0.44
+    },
+    "mgsm": {
+        "el": 0.308
+    }
+}

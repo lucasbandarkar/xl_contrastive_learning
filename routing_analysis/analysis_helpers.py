@@ -126,3 +126,38 @@ def calculate_entropy(probs):
     entropy = -torch.sum(probs * torch.log(probs + eps), dim=-1)
     
     return entropy
+
+def analyze_routing_entropy(expert_importance):
+    """
+    Analyze routing entropy across languages and layers.
+    
+    Args:
+        expert_importance: dict where keys are languages and values are lists of 
+                             Y x E tensors (Y layers, E experts)
+    
+    Returns:
+        results: dict where keys are languages and values are mean entropy per layer (Y,)
+    """
+    results = {}
+    
+    for language, tensor_list in expert_importance.items():
+        print(f"Processing {language}...")
+        
+        # List to store entropy for each string
+        entropy_per_string = []
+        
+        for tensor_idx, routing_tensor in enumerate(tensor_list):
+            # routing_tensor shape: (Y layers, E experts)
+            # Calculate entropy for each layer
+            layer_entropies = calculate_entropy(routing_tensor)  # Shape: (Y,)
+            entropy_per_string.append(layer_entropies)
+        
+        # Stack all entropies and calculate mean across strings
+        # Shape: (N strings, Y layers) -> mean over N -> (Y layers,)
+        all_entropies = torch.stack(entropy_per_string, dim=0)
+        mean_entropy_per_layer = torch.mean(all_entropies, dim=0)
+        
+        results[language] = mean_entropy_per_layer
+        print(f"  {language}: {len(tensor_list)} strings, {len(mean_entropy_per_layer)} layers")
+    
+    return results
