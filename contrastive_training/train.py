@@ -164,6 +164,8 @@ def build_training_metadata(
             "max_layer": args.max_layer,
             "freezing_mode": freezing_mode,
             "contrastive_alpha": args.contrastive_alpha,
+            "contrastive_space": args.contrastive_space,
+            "contrastive_loss_multiplier": getattr(trainer, "contrastive_loss_multiplier", None),
         },
         "loss_tracking": {
             "train_loss": "training objective", 
@@ -259,6 +261,9 @@ def create_output_directory_name(args, size_suffix):
             training_details += f"_L{args.min_layer}-{args.max_layer}"
         else:
             training_details = f"_L{args.max_layer}"
+
+        if args.contrastive_space != "router":
+            training_details += f"_{args.contrastive_space}"
         
         if args.freezing_mode == 1: 
             training_details += "_routers"
@@ -329,6 +334,7 @@ def main(args):
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
             scoring_func=get_router_scoring_func(model),
+            contrastive_space=args.contrastive_space,
         )
     elif args.baseline and args.baseline_mode in ["target_lm", "frozen_lm"]:
         training_args = create_training_args(
@@ -408,6 +414,7 @@ def main(args):
             max_layer=args.max_layer,
             alpha_contrastive=args.contrastive_alpha,
             scoring_func=get_router_scoring_func(model),
+            contrastive_space=args.contrastive_space,
         )
 
     if args.baseline and args.baseline_mode == "frozen_lm":
@@ -481,6 +488,8 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--batch_size', type=int, default=None, help="manual per-device batch size; overrides training_configs.json batch sizes and disables auto_find_batch_size")
     parser.add_argument('-s', "--samples", type=int, default=200, help="number of samples to train on, IN THOUSANDS (e.g. 10 means 10,000)")
     parser.add_argument('-a', '--contrastive_alpha', type=float, default=1.0, help="weight for contrastive loss in contrastive training modes")
+    parser.add_argument('--contrastive_space', '--contrastive-space', choices=["router", "hidden"], default="router",
+                        help="where to apply the contrastive auxiliary loss; hidden is currently Qwen3 packed training only")
     parser.add_argument('-r', '--learning_rate', type=float, default=1e-6, help="training learning rate")
     parser.add_argument('--resume_training', type=str, default=None, help="checkpoint directory to resume from & do another epoch, e.g. .../checkpoint-313")
     parser.add_argument('--no_optimizations', '--no-optimizations', action="store_true", help="bypass optimizations.py and use the legacy modeling.py load path")
@@ -509,5 +518,9 @@ if __name__ == "__main__":
         parser.error("--packed is not implemented for --baseline runs. Remove --baseline for packed contrastive training, or remove --packed for target-LM/frozen-LM baselines.")
     if args.packed and args.earlyexit:
         parser.error("--packed is not implemented for --earlyexit contrastive-only runs. Use full contrastive LM training, or remove --packed.")
+    if args.contrastive_space == "hidden" and args.earlyexit:
+        parser.error("--contrastive_space hidden is implemented for full packed Qwen3 CPT, not early-exit contrastive-only training.")
+    if args.contrastive_space == "hidden" and not args.packed:
+        parser.error("--contrastive_space hidden currently requires packed Qwen3 training. Remove --no-packed or use --contrastive_space router.")
 
     main(args)

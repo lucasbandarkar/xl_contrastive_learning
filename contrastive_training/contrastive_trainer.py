@@ -9,7 +9,11 @@ import re
 from types import MethodType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from packed_forward import get_packed_forward, select_packed_target_positions
+from packed_forward import (
+    get_packed_forward,
+    patch_qwen3_moe_hidden_pooling_forward,
+    select_packed_target_positions,
+)
 from parallel_dataset import PACKED_SEQUENCE_SOURCE, PACKED_SEQUENCE_TARGET
 
 POSSIBLE_ROUTER_NAMES = [
@@ -362,6 +366,37 @@ def packed_contrastive_loss_fn(
     return per_sample_kl.mean(dim=1).mean()
 
 
+def packed_hidden_contrastive_loss_fn(
+    hidden_states: torch.Tensor,
+    loss_type: str = "cosine",
+) -> torch.Tensor:
+    """Contrast pooled target/source hidden summaries.
+
+    Expects hidden_states with shape [layers, 2, samples, hidden], where
+    sequence type 0 is source and 1 is target.
+    """
+    if hidden_states is None:
+        raise ValueError("Hidden-state contrastive loss requested, but no hidden summaries were returned.")
+    if hidden_states.dim() != 4:
+        raise ValueError(
+            "Expected hidden-state summaries with shape [layers, 2, samples, hidden], "
+            f"got {hidden_states.shape}."
+        )
+    if hidden_states.size(0) == 0 or hidden_states.size(2) == 0:
+        return hidden_states.sum() * 0.0
+
+    source_hidden = hidden_states[:, PACKED_SEQUENCE_SOURCE, :, :].float()
+    target_hidden = hidden_states[:, PACKED_SEQUENCE_TARGET, :, :].float()
+    source_hidden = F.normalize(source_hidden, dim=-1)
+    target_hidden = F.normalize(target_hidden, dim=-1)
+
+    if loss_type == "cosine":
+        return (1.0 - (target_hidden * source_hidden).sum(dim=-1)).mean()
+    if loss_type == "mse":
+        return F.mse_loss(target_hidden, source_hidden)
+    raise ValueError(f"Unsupported hidden contrastive loss type: {loss_type!r}.")
+
+
 def _is_packed_batch(inputs: dict[str, Union[torch.Tensor, Any]]) -> bool:
     packed = inputs.get("packed", False)
     if isinstance(packed, torch.Tensor):
@@ -424,6 +459,8 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         max_layer,
         alpha_contrastive=1.0,
         scoring_func="softmax",
+        contrastive_space="router",
+        hidden_loss_type="cosine",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -432,6 +469,11 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
         self.key_layer = self.min_layer
         self.alpha_contrastive = alpha_contrastive
         self.scoring_func = scoring_func
+        self.contrastive_space = contrastive_space
+        self.hidden_loss_type = hidden_loss_type
+        if self.contrastive_space not in {"router", "hidden"}:
+            raise ValueError(f"Unsupported contrastive space: {self.contrastive_space!r}.")
+        self.contrastive_loss_multiplier = 200.0 if self.contrastive_space == "router" else 1.0
         self.eval_loss_key = "lm_loss_tgt"
         self.lm_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100) # Standard LM loss
 
@@ -439,6 +481,10 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
             patch_granite_router_logits(self.model)
         elif self.model.config.model_type == "qwen3_moe":
             patch_qwen3_moe_router_logits(self.model)
+            if self.contrastive_space == "hidden":
+                patch_qwen3_moe_hidden_pooling_forward(self.model)
+        elif self.contrastive_space == "hidden":
+            raise ValueError("Hidden-state contrastive loss is currently implemented only for Qwen3 MoE.")
 
         # This trainer computes a custom mean-reduced loss and does not use
         # num_items_in_batch. Without this override, packed batches' `labels`
@@ -494,6 +540,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
             self.min_layer,
             self.max_layer,
             use_split_forward=not getattr(self, "is_fsdp_enabled", False),
+            contrastive_space=self.contrastive_space,
         )
         logits_scaling = getattr(model.config, "logits_scaling", 1.0)
         target_labels = select_packed_target_positions(inputs["labels"], inputs)
@@ -512,13 +559,19 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
                 logits_scaling=logits_scaling,
             )
 
-        contrastive_loss_val = packed_contrastive_loss_fn(
-            router_outputs.router_logits,
-            inputs["sample_ids"],
-            inputs["sequence_type"],
-            self.scoring_func,
-        )
-        total_loss = lm_loss_tgt + 200 * self.alpha_contrastive * contrastive_loss_val
+        if self.contrastive_space == "hidden":
+            contrastive_loss_val = packed_hidden_contrastive_loss_fn(
+                router_outputs.contrastive_hidden_states,
+                self.hidden_loss_type,
+            )
+        else:
+            contrastive_loss_val = packed_contrastive_loss_fn(
+                router_outputs.router_logits,
+                inputs["sample_ids"],
+                inputs["sequence_type"],
+                self.scoring_func,
+            )
+        total_loss = lm_loss_tgt + self.contrastive_loss_multiplier * self.alpha_contrastive * contrastive_loss_val
 
         if return_outputs:
             log_outputs = {
@@ -541,6 +594,9 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
     ):
         if _is_packed_batch(inputs):
             return self.compute_packed_loss(model, inputs, return_outputs=return_outputs)
+
+        if self.contrastive_space != "router":
+            raise ValueError("Hidden-state contrastive loss currently requires packed Qwen3 training.")
 
         # Concatenate along the batch dimension for a single efficient forward pass
         combined_input_ids = torch.cat([inputs['input_ids_tgt'], inputs['input_ids_src']], dim=0)
@@ -574,8 +630,7 @@ class ContrastiveLMTrainer(FreezableTrainerMixin, Trainer):
             inputs['attention_mask_src'],
             self.scoring_func
         )
-        # 200 because contrastive_loss_val is typically in ~0.05 and lm_loss_tgt is typically in range of ~10-15
-        total_loss = lm_loss_tgt + 200 * self.alpha_contrastive * contrastive_loss_val
+        total_loss = lm_loss_tgt + self.contrastive_loss_multiplier * self.alpha_contrastive * contrastive_loss_val
         
         if return_outputs:
             log_outputs = {
@@ -629,6 +684,8 @@ class ContrastiveTrainer(ContrastiveLMTrainer):
     ):
         ## NOTE: since only doing contrastive loss, don't need to do full forward pass
         ## logic taken care of by PartialMoEModelForCausalLM class in modeling.py
+        if self.contrastive_space != "router":
+            raise ValueError("Hidden-state contrastive loss is not implemented for early-exit contrastive-only training.")
 
         # Concatenate along the batch dimension for a single efficient forward pass
         combined_input_ids = torch.cat([inputs['input_ids_tgt'], inputs['input_ids_src']], dim=0)

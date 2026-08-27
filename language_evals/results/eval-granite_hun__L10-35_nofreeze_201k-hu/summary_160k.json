@@ -1,24 +1,24 @@
 {
     "belebele": {
-        "belebele_hun_Latn": 0.618
+        "belebele_hun_Latn": 0.62
     },
     "flores": {
-        "hu": 25.531
+        "hu": 22.766
     },
     "global_piqa": {
-        "global_piqa_completions_hun_latn": 0.56
+        "global_piqa_completions_hun_latn": 0.54
     },
     "include": {
-        "include_base_44_hungarian": 0.416,
-        "include_base_44_hungarian_few_shot_og_applied_science": 0.413,
-        "include_base_44_hungarian_few_shot_og_social_science": 0.446,
-        "include_base_44_hungarian_few_shot_og_stem": 0.24
+        "include_base_44_hungarian": 0.424,
+        "include_base_44_hungarian_few_shot_og_applied_science": 0.402,
+        "include_base_44_hungarian_few_shot_og_social_science": 0.478,
+        "include_base_44_hungarian_few_shot_og_stem": 0.32
     },
     "mgsm": {
-        "hu": 0.36
+        "hu": 0.284
     },
     "mmlu_prox": {
-        "mmlu_prox_hu": 0.0570801317233809
+        "mmlu_prox_hu": 0.025246981339187707
     },
     "training_metadata": {
         "created_at_utc": "2026-08-22T15:56:53.613620+00:00",

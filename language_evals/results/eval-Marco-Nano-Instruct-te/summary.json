@@ -1,0 +1,27 @@
+{
+    "belebele": {
+        "belebele_tel_Telu": 0.348
+    },
+    "flores": {
+        "te": 17.931
+    },
+    "global_mmlu_medical": {
+        "te": 0.326
+    },
+    "global_piqa": {
+        "global_piqa_completions_tel_telu": 0.56
+    },
+    "include": {
+        "include_base_44_telugu": 0.361,
+        "include_base_44_telugu_few_shot_og_applied_science": 0.422,
+        "include_base_44_telugu_few_shot_og_arts_humanities": 0.351,
+        "include_base_44_telugu_few_shot_og_social_science": 0.313,
+        "include_base_44_telugu_few_shot_og_stem": 0.36
+    },
+    "mgsm": {
+        "te": 0.06
+    },
+    "mmlu_prox": {
+        "mmlu_prox_te": 0.0
+    }
+}

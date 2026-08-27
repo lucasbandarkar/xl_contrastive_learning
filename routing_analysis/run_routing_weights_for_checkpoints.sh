@@ -17,6 +17,10 @@ CHECKPOINTS=(
     # "granite_hun__L10-35_routers_200k/"
     # "granite_hun__L10-35_routers_199k/"
     # "granite_hun__L10-35_routers_201k/"
+    # "granite_sin_baseline-target_lm_200k/"
+    # "granite_sin__L10-35_200k/"
+    # "granite_sin__L10-35_nofreeze_200k"
+    # "granite_sin__L10-20_routers_packed_199k"
     # "qwen3_kan_baseline-target_lm_200k/"
     # "qwen3_kan__L7-34_nofreeze_200k/"
     # "qwen3_kan__L7-34_routers_200k/"
@@ -24,7 +28,7 @@ CHECKPOINTS=(
     # "qwen3_kir__L7-34_nofreeze_200k"
     # "qwen3_kir__L7-34_routers_200k/"
     # "qwen3_tel_baseline-target_lm_200k/"
-    "qwen3_tel__L7-34_nofreeze_200k/"
+    # "qwen3_tel__L7-34_nofreeze_200k/"
     # "qwen3_tel__L7-34_routers_200k/"
     # "gpt_kan_baseline-target_lm_200k"
     # "gpt_kan__L4-17_nofreeze_199k"
@@ -38,7 +42,7 @@ CHECKPOINTS=(
     # "marco_hun__L7-19_routers_200k/" will need new one
     # "marco_sin_baseline-target_lm_200k/"
     # "marco_sin__L7-19_nofreeze_200k/"
-    # need routers
+    # "marco_sin__L7-19_routers_201k"
 )
 
 infer_nickname() {

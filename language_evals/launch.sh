@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
 CONDA_ENV="${CONDA_ENV:-moevllm}"
+UV_ENV_PATH="${UV_ENV_PATH:-${HOME}/.venvs/${CONDA_ENV}}"
+ACTIVE_ENV_KIND=""
 GPU_IDS="${GPU_IDS:-7}"
 LOG_DIR="${LOG_DIR:-logs}"
 LOG_FILE="${LOG_FILE:-${LOG_DIR}/eval_launch_$(date +%Y%m%d_%H%M%S).log}"
@@ -32,23 +34,55 @@ touch "$LOG_FILE" || {
   exit 1
 }
 
+activate_uv_env() {
+  local env_path="$UV_ENV_PATH"
+
+  if [[ ! -f "${env_path}/bin/activate" ]]; then
+    echo "uv env activation script not found: ${env_path}/bin/activate" >&2
+    return 1
+  fi
+
+  # shellcheck disable=SC1091
+  source "${env_path}/bin/activate" || {
+    echo "Failed to activate uv env: ${env_path}" >&2
+    return 1
+  }
+
+  ACTIVE_ENV_KIND="uv"
+  return 0
+}
+
 if command -v conda >/dev/null 2>&1; then
   CONDA_BASE="$(conda info --base)" || {
     echo "Failed to locate conda base" >&2
-    exit 1
+    if ! activate_uv_env; then
+      exit 1
+    fi
   }
-  # shellcheck disable=SC1091
-  source "${CONDA_BASE}/etc/profile.d/conda.sh" || {
-    echo "Failed to source conda.sh from: ${CONDA_BASE}" >&2
-    exit 1
-  }
-  if ! conda activate "$CONDA_ENV"; then
-    echo "Failed to activate conda env: ${CONDA_ENV}" >&2
-    exit 1
+  if [[ "$ACTIVE_ENV_KIND" != "uv" ]]; then
+    # shellcheck disable=SC1091
+    source "${CONDA_BASE}/etc/profile.d/conda.sh" || {
+      echo "Failed to source conda.sh from: ${CONDA_BASE}" >&2
+      if ! activate_uv_env; then
+        exit 1
+      fi
+    }
+  fi
+  if [[ "$ACTIVE_ENV_KIND" != "uv" ]]; then
+    if conda activate "$CONDA_ENV"; then
+      ACTIVE_ENV_KIND="conda"
+    else
+      echo "Failed to activate conda env: ${CONDA_ENV}; trying uv env: ${UV_ENV_PATH}" >&2
+      if ! activate_uv_env; then
+        exit 1
+      fi
+    fi
   fi
 else
-  echo "conda is not available on PATH; cannot activate ${CONDA_ENV}" >&2
-  exit 1
+  echo "conda is not available on PATH; trying uv env: ${UV_ENV_PATH}" >&2
+  if ! activate_uv_env; then
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$EVAL_SCRIPT" ]]; then
@@ -57,7 +91,7 @@ if [[ ! -f "$EVAL_SCRIPT" ]]; then
 fi
 
 if ! command -v python >/dev/null 2>&1; then
-  echo "python is not available after activating ${CONDA_ENV}" >&2
+  echo "python is not available after activating ${ACTIVE_ENV_KIND} env: ${CONDA_ENV}" >&2
   exit 1
 fi
 
@@ -179,7 +213,7 @@ run_eval() {
 }
 
 main() {
-  echo "Activated conda env: ${CONDA_ENV}"
+  echo "Activated ${ACTIVE_ENV_KIND} env: ${CONDA_ENV}"
   echo "Default GPUs: ${GPU_IDS}"
   echo "Writing full logs to: ${LOG_FILE}"
 
@@ -205,6 +239,7 @@ main() {
   #
   # You can override shared defaults from the shell:
   #   GPU_IDS=7 CONDA_ENV=moevllm bash launch.sh
+  #   GPU_IDS=7 CONDA_ENV=moevllm UV_ENV_PATH=~/.venvs/moevllm bash launch.sh
 
   echo
   echo "[$(timestamp)] Queue complete: ${RUN_TOTAL} eval(s), ${RUN_FAILED} failure(s)."
